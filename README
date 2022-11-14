@@ -1,5 +1,12 @@
 This repository includes the implementation of the QVPN project evaluation. 
 
+You would need to have these libraries installed on your machine:
+    1. networkx
+    2. matplotlib
+    3. numpy
+    4. absl
+    5.IBM Cplex academic edition
+    
 We use IBM CPLEX (the academic edition) as our optimization solver. Be sure that you are installing the academic edition of the IBM Cplex, not the community edition. The community edition does not support solving problems with a size larger than a value and may not support the scale of the problem that we are trying to solve. 
 
 If you want to use the CPLEX or CP Optimizer engines through their Python APIs, you need to tell Python where to find them. To do so, for mac machines, enter the following command into a terminal :
@@ -16,14 +23,6 @@ $ mkdir /QVPN/build
 $ python /modules/apps/cplex/2210/python/setup.py build --build-base=/QVPN/build install --prefix=/QVPN/myPython/
 
 
+To run the experiment, set the experiment parameters in the configuration file (config.py) and then run the main.py script.
 
-You would need to have these libraries installed on your machine:
-    1. networkx
-    2. matplotlib
-    3. numpy
-    4. absl
-    
-
-To run the experiment, set the experiment parameters in the configuration file (donfig.py) and then run the main.py script.
-
-Directory data includes the files for the topology of the networks (so far ATT and SURFnet) and the workload files. The workload file have a few workloads. Each workload is a line in that file and in each line we have a value (weight) from each node to another node in the network. We will try to maximize the entanglement generation rate for the user pairs that have non zero weights.
+Directory "data" includes the files for the topology of the networks (so far ATT and SURFnet) and the workload files. The workload file have a few workloads. Each workload is a line in that file and in each line we have a value (weight) from each node to another node in the network. We will try to maximize the entanglement generation rate for the user pairs that have non zero weights.
