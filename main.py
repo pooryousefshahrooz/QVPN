@@ -8,7 +8,6 @@ from __future__ import print_function
 
 import numpy as np
 import random
-from tqdm import tqdm
 import multiprocessing as mp
 from absl import app
 from absl import flags
@@ -33,19 +32,20 @@ def main(_):
                 network.fidelity_threshold_range = fidelity_threshold_up_range
                 network.set_each_wk_k_fidelity_threshold()
                 for edge_fidelity_range in config.edge_fidelity_ranges:
-                    for purificaion_scheme in ["end_level"]:
+                    for purificaion_scheme in ["edge_level"]:
                         if purificaion_scheme =="end_level":
                             network.end_level_purification_flag = True
                         else:
                             network.end_level_purification_flag = False
 
-                        network.end_level_purification_flag = True
+                        
                         network.set_edge_fidelity(edge_fidelity_range)
                         # we get all the paths for all workloads
                         network.num_of_paths = num_paths
                         network.get_path_info()
                         for q_value in config.q_values:
                             network.q_value = q_value
+                            network.set_nodes_q_value()
                             for scheme in config.schemes:
                                 if scheme in ["EGR","EGRSquare","Hop"]:
                                     network.evaluate_shortest_path_routing(scheme)
