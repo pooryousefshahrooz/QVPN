@@ -8,6 +8,7 @@ import networkx as nx
 from itertools import islice
 import matplotlib.pyplot as plt
 import random
+from itertools import groupby
 import time
 import math as mt
 import csv
@@ -52,6 +53,7 @@ class Network:
         self.path_counter_id = 0
         self.pair_id = 0
         self.q_value = 1
+        self.each_node_q_value = {}
         self.each_u_weight={}
         self.each_path_legth = {}
         self.K= []
@@ -67,6 +69,7 @@ class Network:
         self.each_user_pair_all_paths = {}
         self.each_k_weight = {}
         self.each_k_u_weight = {}
+        self.each_wk_k_u_pair_weight = {}
         self.each_pair_paths = {}
         self.each_scheme_each_user_pair_paths = {}
         self.max_edge_capacity = 0
@@ -77,7 +80,7 @@ class Network:
             if scheme in ["EGR","Hop","EGRSquare"]:
                 self.link_cost_metrics.append(scheme)
                 
-        self.cut_off_for_path_searching = int(config.cut_off_for_path_searching)
+        self.cut_off_for_path_searching = max(int(config.cut_off_for_path_searching),config.num_of_paths)
         self.load_topology(edge_capacity_bound)
         
         self.set_wk_organizations_user_pairs_from_file()
@@ -105,9 +108,8 @@ class Network:
                 self.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx)       
             # calling the IBM CPLEX solver to solve the optimization problem
             egr = solver.CPLEX_maximizing_EGR(wk_idx,self)
-            print("for work_load %s we have egr as %s"%(wk_idx,egr))
-    
-    
+            #network_capacity = solver.CPLEX_swap_scheduling(wk_idx,self)
+            print("for work_load %s number of paths %s we have egr as %s "%(wk_idx,self.num_of_paths,egr))
     def get_each_user_all_paths(self,wk_idx):
         """this function will set all the paths of each user pair for the given work load"""
         self.each_user_pair_all_paths = {}
@@ -208,6 +210,48 @@ class Network:
             self.g.add_edge(int(d),int(s),capacity=edge_capacity,weight=1)
         f.close()
         
+    def set_nodes_q_value(self):
+        for node in self.nodes:
+            self.each_node_q_value[node] = self.q_value
+    def find_longest_path(self,source,destination):
+        print("source %s destination %s"%(source,destination))
+        # Get the longest path from node source to node destination
+        longest_path = max(nx.all_simple_paths(self.g, source, destination), key=lambda x: len(x))
+        return longest_path
+    def get_required_edge_level_purification_EPR_pairs_all_paths(self,edge,source,destination,wk_idx):
+        #print("checking pair %s in edges %s"%(edge,self.set_E))
+        if edge not in self.set_E:
+            return 1
+        else:
+            longest_p_lenght = self.find_longest_path(source,destination)
+            print("the length of the longest path is ",len(longest_p_lenght))
+            print("longest_p_lenght",longest_p_lenght)
+            return 1
+            try:
+                if new_target in self.each_edge_target_fidelity[edge]:
+                    return self.each_edge_target_fidelity[edge][new_target]
+                else:
+                    n_avg = self.get_avg_epr_pairs_DEJMPS(edge_basic_fidelity ,new_target)
+                    try:
+                        self.each_edge_target_fidelity[edge][new_target] = n_avg
+                    except:
+                        self.each_edge_target_fidelity[edge] = {}
+                        self.each_edge_target_fidelity[edge][new_target] = n_avg
+                    return n_avg
+            except:
+                if longest_p_lenght==0:
+                    new_target = self.each_edge_fidelity[edge]
+                else:
+                    new_target = (3*(4/3*max_F_threshold-1/3)**(1/longest_p_lenght)+1)/4
+
+                edge_basic_fidelity = self.each_edge_fidelity[edge]
+                n_avg = self.get_avg_epr_pairs_DEJMPS(edge_basic_fidelity ,new_target)
+                try:
+                    self.each_edge_target_fidelity[edge][new_target] = n_avg
+                except:
+                    self.each_edge_target_fidelity[edge] ={}
+                    self.each_edge_target_fidelity[edge][new_target] = n_avg
+            return n_avg    
     def get_path_info(self):
         self.all_user_pairs_across_wks = []
         self.each_pair_paths = {}
@@ -279,7 +323,12 @@ class Network:
     def get_paths_between_user_pairs(self,user_pair):
         
         return self.k_shortest_paths(user_pair[0], user_pair[1], self.cut_off_for_path_searching,"weight")
-            
+    
+    def check_edge_exit(self,edge):
+        if edge in self.set_E:
+            return 1
+        else:
+            return 0
     def set_edge_fidelity(self,edge_fidelity_range):
         
         self.max_edge_fidelity = edge_fidelity_range
@@ -432,41 +481,66 @@ class Network:
                 self.each_k_user_pairs[k]= selected_ids
     def set_each_wk_user_pair_weight(self):
         self.each_wk_k_u_weight ={}
+        self.each_wk_k_u_pair_weight = {}
         for wk,k_us in  self.each_wk_each_k_user_pair_ids.items():
             for k, user_pairs in k_us.items():
                 for u in user_pairs:
                     weight = random.uniform(0.1,1)
                     weight = 1
+                    user_pair = self.each_id_pair[u]
                     try:
                         self.each_wk_k_u_weight[wk][k][u] = weight
+                        self.each_wk_k_u_pair_weight[wk][k][user_pair] = weight
                     except:
                         try:
                             self.each_wk_k_u_weight[wk][k] ={}
                             self.each_wk_k_u_weight[wk][k][u] = weight
+                            
+                            self.each_wk_k_u_pair_weight[wk][k] ={}
+                            self.each_wk_k_u_pair_weight[wk][k][user_pair] = weight
                         except:
                             self.each_wk_k_u_weight[wk] ={}
                             self.each_wk_k_u_weight[wk][k] = {}
                             self.each_wk_k_u_weight[wk][k][u] = weight
+                            
+                            self.each_wk_k_u_pair_weight[wk] ={}
+                            self.each_wk_k_u_pair_weight[wk][k] ={}
+                            self.each_wk_k_u_pair_weight[wk][k][user_pair] = weight
+                            
+
         
     def set_each_k_user_pair_paths(self,wk_idx):
         """we set self.num_of_paths for each user pair of each organization """
         for k,user_pair_ids in self.each_wk_each_k_user_pair_ids[wk_idx].items():
             for user_pair_id in user_pair_ids:
+                #print("for user pair ",user_pair_id)
                 user_pair = self.each_id_pair[user_pair_id]
                 having_at_least_one_path_flag = False
+                one_path_added_flag = False
                 for path in self.k_shortest_paths(user_pair[0], user_pair[1], self.num_of_paths,"weight"):
+                    
                     node_indx = 0
                     path_edges = []
                     for node_indx in range(len(path)-1):
                         path_edges.append((path[node_indx],path[node_indx+1]))
                         node_indx+=1
                     if self.get_this_path_fidelity(path_edges)>=0.6:
+                        #print("for path ",path)
                         self.set_each_path_length(self.path_counter_id,path)
                         self.set_of_paths[self.path_counter_id] = path_edges
                         path_id=self.path_counter_id 
                         try:
-                            if len(self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])<network.num_of_paths:
+#                             if one_path_added_flag:
+#                                 print("we should have the list")
+#                                 print("wk self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx])
+#                                 print("wk k self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k])
+#                                 print("wk k u self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])
+#                                 print("#")
+#                                 print("and this is the len ",len(self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]))
+                            if len(self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])<self.num_of_paths:
+                                #print("2 adding path for user pair %s # paths %s",user_pair,self.num_of_paths)
                                 having_at_least_one_path_flag = True
+                                one_path_added_flag=True
                                 try:
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
                                 except:
@@ -481,17 +555,25 @@ class Network:
                                             self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                             self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
                         except:
+                            #print("ValueError", ValueError)
+#                             if one_path_added_flag:
+#                                 print("self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])
                             having_at_least_one_path_flag = True
+                            one_path_added_flag=True
+#                             print("1 adding path for user pair %s # paths %s",user_pair,self.num_of_paths)
                             try:
                                 self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+#                                 print(" 1 added")
                             except:
                                 try:
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+#                                     print("2 added")
                                 except:
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+#                                     print("3 added")
                         self.path_counter_id+=1
                 if not having_at_least_one_path_flag:
 #                     print("this user %s did not have even one valid path "%(user_pair_id))
@@ -711,6 +793,7 @@ class Network:
                         self.oracle_for_target_fidelity[path][target] = n_avg
     
     def get_required_edge_level_purification_EPR_pairs(self,edge,p,F,wk_idx):
+        return 1
         longest_p_lenght   = 0
         max_F_threshold = 0
         for k,users in self.each_wk_k_user_pairs[wk_idx].items():
@@ -866,109 +949,15 @@ class Network:
     
 
 
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
+# In[3]:
+
+
+# path_edges = [1,2,3,4,5,6,7,8]
+# each_edge_fidelity = {1:0.99,2:0.99,3:0.99,4:0.99,5:0.99,6:0.99,7:0.99,8:0.99}
+# basic_fidelity = 1/4+(3/4)*(4*each_edge_fidelity[path_edges[0]]-1)/3
+# for edge in path_edges[1:]:
+#     basic_fidelity  = (basic_fidelity)*((4*each_edge_fidelity[edge]-1)/3)
+# print(basic_fidelity)
 
 
 # In[ ]:

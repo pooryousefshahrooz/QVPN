@@ -56,7 +56,7 @@ class Config(NetworkConfig):
   num_of_organizations = 1
   number_of_user_pairs = 6 # Number of user pairs that exist for each organization. 
   min_num_of_paths = 1
-  num_of_paths = 1
+  num_of_paths = 20
   q_values = [1]# Different values of q (swap success probability) that we want to evaluate in the experiment
  
     
