@@ -17,6 +17,10 @@ import random
 from solver import Solver
 import pdb
 
+from os import listdir
+
+from os.path import isfile, join
+
 
 # In[1]:
 
@@ -72,6 +76,7 @@ class Network:
         self.each_wk_k_u_pair_weight = {}
         self.each_pair_paths = {}
         self.each_scheme_each_user_pair_paths = {}
+        self.each_user_organization = {}
         self.max_edge_capacity = 0
         self.setting_basic_fidelity_flag = False
         self.each_link_cost_metric = "Hop"
@@ -114,6 +119,7 @@ class Network:
         """this function will set all the paths of each user pair for the given work load"""
         self.each_user_pair_all_paths = {}
         for k, user_pair_ids in self.each_wk_each_k_user_pair_ids[wk_idx].items():
+            print("we have these user pairs %s in work load %s "%(user_pair_ids,wk_idx))
             for user_pair_id in user_pair_ids:
                 for path_id in self.each_pair_paths[user_pair_id]:
                     try:
@@ -122,11 +128,37 @@ class Network:
                         self.each_user_pair_all_paths[user_pair_id] = [path_id]
             
         
-    def generate_chromosome(self,wk_idx):
+    def generate_chromosomes(self,wk_idx):
         """this function generates a population from finite number of chromosomes"""
+        self.ordered_user_pairs = []# we use this list to identify the paths of each user pair in the chromosome later
         # we use the data structure filled in function get_each_user_all_paths() for this
-        self.chromosomes = [[1,2,3]]
-        pass
+        
+        for k in self.each_wk_organizations[wk_idx]:# Since we have only one organization, the value of k is always zero
+            for user_pair_id in self.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                if user_pair_id not in self.ordered_user_pairs:
+                    self.ordered_user_pairs.append(user_pair_id)
+                self.each_user_organization[user_pair_id] = k
+        self.ordered_user_pairs.sort()
+        number_of_chromosomes = 4# you can set how many chromosome you want to have in each chromosome
+        self.chromosomes = [[1,2,3],[4,5,6]]# an example of chromosomes. Each list in this list is one chromosome
+        #each chromosome is a list of paths ids. For example if we have three user pairs and
+        # each user can have at most one path, then in the first chromosom [1,2,3] \n
+        # path id 1 is for the first user, 2 is for the second and 3 is for third.
+        self.chromosomes = []
+        for i in range(number_of_chromosomes):
+            chromosome = []# this is a new chromosome
+            for k in self.each_wk_organizations[wk_idx]:# Since we have only one organization, the value of k is always zero
+                print("for k %s e have these pairs %s"%(k,self.ordered_user_pairs))
+                for user_pair_id in self.ordered_user_pairs:
+                    path_counter = 0
+                    while(path_counter <self.num_of_paths):# check how many paths have been selected for each user pair
+                        path_ids = self.each_user_pair_all_paths[user_pair_id]
+                        path_id = path_ids[random.randint(0,len(path_ids)-1)]# get one random path
+                        chromosome.append(path_id)
+                        path_counter+=1
+            self.chromosomes.append(chromosome)
+       
+      
         
     def crossover_operation(self):
         """this function applies crossover operator to the given population"""
@@ -134,28 +166,54 @@ class Network:
     def mutation_operation(self):
         """this function applies mutation operator to the given population"""
         pass
-    def set_paths_from_chromosome(self,chromosome):
+    def set_paths_from_chromosome(self,wk_idx,chromosome):
         """this function uses the information in the chromosome 
         to set the paths to the data structure that will be used by solver"""
-        pass
+        print("this is the chromosome ",chromosome)
+        path_indx = 0
+        for user_pair_id in self.ordered_user_pairs:
+            path_ids = chromosome[path_indx:path_indx+self.num_of_paths]
+            path_indx = path_indx+self.num_of_paths
+            k = self.each_user_organization[user_pair_id]
+            try:
+                self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = path_ids
+            except:
+                try:
+                    self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
+                    self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = path_ids
+                except:
+                    self.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
+                    self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
+                    self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=path_ids
+        
+        self.set_each_path_basic_fidelity()
+        """we set the required EPR pairs to achieve each fidelity threshold"""
+        self.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx)
         
     def evaluate_genetic_algorithm_for_path_selection(self):
         """this function implements the main work flow of the genetic algorithm"""
         solver = Solver()
+        self.each_link_cost_metric ="Hop" 
+        self.set_link_weight("Hop")
         runs_of_genetic_algorithm = 0
         genetic_algorithm_running_flag = True
-        max_runs_of_genetic_algorithm = 100 # maximum number of populations during genetic algorithm search
+        max_runs_of_genetic_algorithm = 1 # maximum number of populations during genetic algorithm search
         for wk_idx in self.work_loads:# Each work load includes a different set of user pairs in the network 
             """we set the set of all paths (all n shortest paths using different link cost metrics)"""
             self.get_each_user_all_paths(wk_idx)
-            self.generate_chromosome(wk_idx)
+            # we print the path ids for each user pair id
+            for user_pair,path_ids in self.each_user_pair_all_paths.items():
+                # you can get the edges of each path id in self.set_of_paths dictionary
+                print("user pair id %s has these path  ids %s "%(user_pair,path_ids))
+            self.each_user_organization = {}
+            self.generate_chromosomes(wk_idx)
             max_fitness_value = 0
             best_chromosome = ""
             while(genetic_algorithm_running_flag):
                 self.crossover_operation()
                 self.mutation_operation()
                 for chromosome in self.chromosomes:
-                    self.set_paths_from_chromosome(chromosome)
+                    self.set_paths_from_chromosome(wk_idx,chromosome)
                     fitness_value  = solver.CPLEX_maximizing_EGR(wk_idx,self)
                     # we store the best fitness value and the chromosome associated to it
                    # in our final loop of genetic algorithm
@@ -164,7 +222,10 @@ class Network:
                         if fitness_value>max_fitness_value:
                             max_fitness_value = fitness_value
                             best_chromosome = chromosome
-            runs_of_genetic_algorithm+=1
+                    print("for wk %s chromosome %s we got egr %s"%(wk_idx,chromosome,fitness_value))
+                    time.sleep(2)
+                print("genetic_algorithm_running_flag",genetic_algorithm_running_flag)
+                runs_of_genetic_algorithm+=1
         
             print("for work load %s we have entanglement generation rate of %s using these paths %s"%
                   (wk_idx,max_fitness_value,best_chromosome))
@@ -261,7 +322,6 @@ class Network:
         self.path_counter = 0
         for wk,ks in self.each_wk_organizations.items():
             for k in ks:
-                #print("we have %s users for k %s"%(self.each_wk_k_user_pairs[wk][k],k))
                 for u in self.each_wk_each_k_user_pairs[wk][k]:
                     if u not in self.all_user_pairs_across_wks:
                         self.all_user_pairs_across_wks.append(u)
@@ -271,7 +331,7 @@ class Network:
                 user_pair_id = self.each_pair_id[user_pair]
                 self.each_pair_paths[user_pair_id]=[]
         
-        for link_cost_metric in self.link_cost_metrics:
+        for link_cost_metric in ["EGR","Hop","EGRSquare"]:
             self.each_link_cost_metric =link_cost_metric 
             self.set_link_weight(link_cost_metric)
             for user_pair in self.all_user_pairs_across_wks:
@@ -319,7 +379,6 @@ class Network:
                         self.each_scheme_each_user_pair_paths[link_cost_metric][user_pair_id] = []
                         
              
-        
     def get_paths_between_user_pairs(self,user_pair):
         
         return self.k_shortest_paths(user_pair[0], user_pair[1], self.cut_off_for_path_searching,"weight")
@@ -513,7 +572,6 @@ class Network:
         """we set self.num_of_paths for each user pair of each organization """
         for k,user_pair_ids in self.each_wk_each_k_user_pair_ids[wk_idx].items():
             for user_pair_id in user_pair_ids:
-                #print("for user pair ",user_pair_id)
                 user_pair = self.each_id_pair[user_pair_id]
                 having_at_least_one_path_flag = False
                 one_path_added_flag = False
@@ -525,20 +583,11 @@ class Network:
                         path_edges.append((path[node_indx],path[node_indx+1]))
                         node_indx+=1
                     if self.get_this_path_fidelity(path_edges)>=0.6:
-                        #print("for path ",path)
                         self.set_each_path_length(self.path_counter_id,path)
                         self.set_of_paths[self.path_counter_id] = path_edges
                         path_id=self.path_counter_id 
                         try:
-#                             if one_path_added_flag:
-#                                 print("we should have the list")
-#                                 print("wk self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx])
-#                                 print("wk k self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k])
-#                                 print("wk k u self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])
-#                                 print("#")
-#                                 print("and this is the len ",len(self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]))
                             if len(self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])<self.num_of_paths:
-                                #print("2 adding path for user pair %s # paths %s",user_pair,self.num_of_paths)
                                 having_at_least_one_path_flag = True
                                 one_path_added_flag=True
                                 try:
@@ -555,28 +604,21 @@ class Network:
                                             self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                             self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
                         except:
-                            #print("ValueError", ValueError)
-#                             if one_path_added_flag:
-#                                 print("self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]",self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id])
                             having_at_least_one_path_flag = True
                             one_path_added_flag=True
-#                             print("1 adding path for user pair %s # paths %s",user_pair,self.num_of_paths)
                             try:
                                 self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
-#                                 print(" 1 added")
                             except:
                                 try:
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
-#                                     print("2 added")
                                 except:
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                     self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
-#                                     print("3 added")
+
                         self.path_counter_id+=1
                 if not having_at_least_one_path_flag:
-#                     print("this user %s did not have even one valid path "%(user_pair_id))
                     try:
                         self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = []
                     except:
@@ -946,7 +988,86 @@ class Network:
     def get_path_length(self,path):
         return self.each_path_legth[path]-1
 
-    
+    def parsing_zoo_topologies(self):
+        onlyfiles = [f for f in listdir("data/") if isfile(join("data/", f))]
+        not_connected = 0
+        connected = 0
+        for file in onlyfiles:
+            # computing distance between two nodes in graphgml data structure
+            #print("this is the file ",file)
+            if "graphml" in file:
+                G = nx.read_graphml("data/"+file)
+                if nx.is_connected(G):
+                    connected+=1
+                    latitude_values = []
+                    longitude_values = []
+                    degrees = []
+                    diameter = nx.diameter(G)
+
+                    distances = []
+                    latitudes = nx.get_node_attributes(G,"Latitude")
+
+                    Longitudes  = nx.get_node_attributes(G,"Longitude")
+        #             if file =="Darkstrand.graphml":
+        #                 print("Longitudes",Longitudes)
+        #                 print("latitudes",latitudes)
+                    counter = 0
+                    import haversine as hs
+                    for node in G.nodes:
+                        #print(node)
+                        degrees.append(G.degree[node])
+                        try:
+                            #print("node %s latitudes %s Longitudes %s"%(node, latitudes[node],Longitudes[node]))
+                            longitude_values.append(Longitudes[node])
+                            latitude_values.append(latitudes[node])
+                        except:
+                            counter+=1
+                            pass
+
+                    for edge in G.edges:
+                        try:
+                            coords_1 = (latitudes[edge[0]],Longitudes[edge[0]])
+                        except:
+                            #print("all latituted",latitude_values,longitude_values)
+                            random_latitude = random.uniform(min(latitude_values), max(latitude_values))
+                            random_longitude = random.uniform(min(longitude_values), max(longitude_values))
+                            coords_1 = (random_latitude,random_longitude)
+                        try:
+                            coords_2 = (latitudes[edge[0]],Longitudes[edge[0]])
+                        except:
+                            random_latitude = random.uniform(min(latitude_values), max(latitude_values))
+                            random_longitude = random.uniform(min(longitude_values), max(longitude_values))
+                            coords_1 = (random_latitude,random_longitude)
+                        distance = hs.haversine(coords_1,coords_2)
+                        distances.append(distance)
+                    for edge in G.edges:
+                        #print("for edge ",edge)
+                        try:
+                            coords_1 = (latitudes[edge[0]],Longitudes[edge[0]])
+                            #print("for node %s we have %s"%(edge[0],coords_1))
+                        except:
+                            #print("all latituted",latitude_values,longitude_values)
+                            random_latitude1 = random.uniform(min(latitude_values), max(latitude_values))
+                            random_longitude1 = random.uniform(min(longitude_values), max(longitude_values))
+                            coords_1 = (random_latitude1,random_longitude1)
+                        try:
+                            coords_2 = (latitudes[edge[1]],Longitudes[edge[1]])
+                            #print("for node %s we have %s"%(edge[1],coords_2))
+                        except:
+                            random_latitude2 = random.uniform(min(latitude_values), max(latitude_values))
+                            random_longitude2 = random.uniform(min(longitude_values), max(longitude_values))
+                            coords_2 = (random_latitude2,random_longitude2)
+                        distance = hs.haversine(coords_1,coords_2)
+        #                 if file =="Darkstrand.graphml":
+        #                     print("distance for edge %s with latitude longitude %s and  %s is %s"%(edge,coords_1,coords_2,distance))
+                        distances.append(distance)
+                        #print("edge %s node %s is %s from node %s "%(edge, edge[0],distance,edge[1]))
+                    #print("counter ",counter)
+                    print("network %s \n has %s nodes \n %s edges \n avg degree %s \n diameter %s \n avg distance %s \n min distance %s \n max distance %s \n unfound nodes %s"%(file,len(G.nodes),len(G.edges), sum(degrees)/len(degrees),diameter, sum(distances)/len(distances),min(distances),max(distances),counter))
+                    print("%s ,  %s ,  %s , , %s , %s , %s , %s , %s "%(file,len(G.nodes),len(G.edges), sum(degrees)/len(degrees),diameter, sum(distances)/len(distances),min(distances),max(distances)))
+                else:
+                    not_connected+=1
+
 
 
 # In[3]:
@@ -958,6 +1079,30 @@ class Network:
 # for edge in path_edges[1:]:
 #     basic_fidelity  = (basic_fidelity)*((4*each_edge_fidelity[edge]-1)/3)
 # print(basic_fidelity)
+
+
+# In[54]:
+
+
+
+
+
+# In[25]:
+
+
+#read2("data/Istar.graphml")
+
+
+# In[ ]:
+
+
+
+
+
+# In[3]:
+
+
+
 
 
 # In[ ]:

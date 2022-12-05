@@ -51,12 +51,12 @@ class Config(NetworkConfig):
   edge_fidelity_ranges = [0.9]
   edge_capacity_bounds = [400]
   schemes = ["EGR","Hop","EGRSquare","Genetic"]# Set the schemes that you want to evaluate. If you want to evaluate only genetic algorithm, set only Genetic keyword in the list
-  schemes = ["EGR"]
+  schemes = ["Genetic"]
   cut_off_for_path_searching = 3# We use this cut off when we search for the set of paths that a user pair can use
   num_of_organizations = 1
   number_of_user_pairs = 6 # Number of user pairs that exist for each organization. 
   min_num_of_paths = 1
-  num_of_paths = 20
+  num_of_paths = 1
   q_values = [1]# Different values of q (swap success probability) that we want to evaluate in the experiment
  
     
