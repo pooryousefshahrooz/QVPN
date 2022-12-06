@@ -24,13 +24,13 @@ class Solver:
     def __init__(self):
         pass
     def CPLEX_maximizing_EGR(self,wk_idx,network):
-#         for k in network.each_wk_organizations[wk_idx]:
-#             for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-#                 print("we are k %s u %s paths %s # paths %s allowed %s"%(k,u,network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u],len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.num_of_paths))
-# #                 for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
-# #                     print("wk %s k %s w %s user %s w %s path %s"%(wk_idx,k,network.each_wk_k_weight[wk_idx][k],u,network.each_wk_k_u_weight[wk_idx][k][u],p))
-#         print("done!")
-#         print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
+        for k in network.each_wk_organizations[wk_idx]:
+            for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                print("we are k %s u %s paths %s # paths %s allowed %s"%(k,u,network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u],len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.num_of_paths))
+#                 for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                     print("wk %s k %s w %s user %s w %s path %s"%(wk_idx,k,network.each_wk_k_weight[wk_idx][k],u,network.each_wk_k_u_weight[wk_idx][k][u],p))
+        print("done!")
+        print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
         opt_model = cpx.Model(name="inter_organization_EGR")
         x_vars  = {(k,p): opt_model.continuous_var(lb=0, ub= network.max_edge_capacity,
                                   name="w_{0}_{1}".format(k,p))  for k in network.each_wk_organizations[wk_idx]

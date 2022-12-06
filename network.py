@@ -196,7 +196,7 @@ class Network:
         self.each_link_cost_metric ="Hop" 
         self.set_link_weight("Hop")
         runs_of_genetic_algorithm = 0
-        genetic_algorithm_running_flag = True
+        
         max_runs_of_genetic_algorithm = 1 # maximum number of populations during genetic algorithm search
         for wk_idx in self.work_loads:# Each work load includes a different set of user pairs in the network 
             """we set the set of all paths (all n shortest paths using different link cost metrics)"""
@@ -209,6 +209,8 @@ class Network:
             self.generate_chromosomes(wk_idx)
             max_fitness_value = 0
             best_chromosome = ""
+            genetic_algorithm_running_flag = True
+            print("******** for work load %s *******"%(wk_idx))
             while(genetic_algorithm_running_flag):
                 self.crossover_operation()
                 self.mutation_operation()
