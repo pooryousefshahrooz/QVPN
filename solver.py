@@ -24,13 +24,16 @@ class Solver:
     def __init__(self):
         pass
     def CPLEX_maximizing_EGR(self,wk_idx,network):
-        for k in network.each_wk_organizations[wk_idx]:
-            for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-                print("we are k %s u %s paths %s # paths %s allowed %s"%(k,u,network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u],len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.num_of_paths))
+        #print("scheme ",network.)
+#         for k in network.each_wk_organizations[wk_idx]:
+#             for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:                
+#                 print("we are k %s u %s paths %s # paths %s allowed %s"%(k,u,network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u],len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.num_of_paths))
 #                 for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
 #                     print("wk %s k %s w %s user %s w %s path %s"%(wk_idx,k,network.each_wk_k_weight[wk_idx][k],u,network.each_wk_k_u_weight[wk_idx][k][u],p))
-        print("done!")
-        print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
+#                     print("edges of the path",network.set_of_paths[p])
+#         print("done!")
+    
+        #print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
         opt_model = cpx.Model(name="inter_organization_EGR")
         x_vars  = {(k,p): opt_model.continuous_var(lb=0, ub= network.max_edge_capacity,
                                   name="w_{0}_{1}".format(k,p))  for k in network.each_wk_organizations[wk_idx]
@@ -54,6 +57,7 @@ class Solver:
                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
                     if network.check_path_include_edge(edge,p))
                      <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+                
             else:
                 opt_model.add_constraint(
                     opt_model.sum(x_vars[k,p]*network.each_wk_k_u_weight[wk_idx][k][u] *
@@ -61,8 +65,10 @@ class Solver:
                     for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
                     if network.check_path_include_edge(edge,p))
-
                      <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+#                 print("from edge %s to F %s divide capacity by this %s"%(edge,network.each_wk_k_fidelity_threshold[0],
+#                           network.get_required_edge_level_purification_EPR_pairs
+#                           (edge,0,network.each_wk_k_fidelity_threshold[0],0)))
 
         objective = opt_model.sum(x_vars[k,p]*network.each_wk_k_weight[wk_idx][k] * network.each_wk_k_u_weight[wk_idx][k][u]*network.q_value**(network.get_path_length(p)-1)
                               for k in network.each_wk_organizations[wk_idx]
@@ -121,11 +127,19 @@ class Solver:
                         opt_model.add_constraint(opt_model.sum(network.each_node_q_value[k] *
                         (eflow_vars[i,k,i,j]+eflow_vars[k,j,i,j])/2 for k in network.nodes if k not in [i,j])
                         +(network.each_edge_capacity[(i,j)] 
-                         * network.check_edge_exit((i,j)))
-                        /network.get_required_edge_level_purification_EPR_pairs_all_paths((i,j),i,j,wk_idx) 
+                         * network.check_edge_exit((i,j))) 
                         - opt_model.sum(
                         (eflow_vars[i,j,i,k]+eflow_vars[i,j,k,j]) for k in network.nodes if k not in [i,j])
                         >=0)
+                        #With average round of purification required on paths
+#                         opt_model.add_constraint(opt_model.sum(network.each_node_q_value[k] *
+#                         (eflow_vars[i,k,i,j]+eflow_vars[k,j,i,j])/2 for k in network.nodes if k not in [i,j])
+#                         +(network.each_edge_capacity[(i,j)] 
+#                          * network.check_edge_exit((i,j)))
+#                         /network.get_required_edge_level_purification_EPR_pairs_all_paths((i,j),i,j,wk_idx) 
+#                         - opt_model.sum(
+#                         (eflow_vars[i,j,i,k]+eflow_vars[i,j,k,j]) for k in network.nodes if k not in [i,j])
+#                         >=0)
         for i in network.nodes:
             for j in network.nodes:
                 for k in network.nodes:

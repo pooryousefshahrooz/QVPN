@@ -41,24 +41,35 @@ class NetworkConfig(object):
 #   baseline = 'best'          #avg, best
 class Config(NetworkConfig):
   """ this class includes all the experiments setup"""
-  topology_file = 'ATT'#'SURFnet'
+  list_of_topologies = ["Surfnet.txt"]#'SURFnet'
   work_load_file = 'WK'
   min_edge_capacity = 1# EPR per second
   max_edge_capacity = 400# EPR per second
-  min_edge_fidelity = 0.94
-  max_edge_fidelity = 0.98
-  fidelity_threshold_ranges = [0.9]# for organizations
+  min_edge_fidelity = 0.98
+  max_edge_fidelity = 0.99
+  fidelity_threshold_ranges = [0.94]# for organizations
   edge_fidelity_ranges = [0.9]
   edge_capacity_bounds = [400]
   schemes = ["EGR","Hop","EGRSquare","Genetic"]# Set the schemes that you want to evaluate. If you want to evaluate only genetic algorithm, set only Genetic keyword in the list
   schemes = ["Genetic"]
+  purification_scheme =  ["end_level"]
   cut_off_for_path_searching = 3# We use this cut off when we search for the set of paths that a user pair can use
   num_of_organizations = 1
-  number_of_user_pairs = 6 # Number of user pairs that exist for each organization. 
+  number_of_user_pairs = 1 # Number of user pairs that exist for each organization. 
   min_num_of_paths = 1
   num_of_paths = 1
   q_values = [1]# Different values of q (swap success probability) that we want to evaluate in the experiment
- 
+  number_of_work_loads = 1
+  number_of_flow_set = [10,20,30,40,50]# the number of flows that we want to maximize EGR for them
+
+  """we set the parameters of the genetic algorithm here"""
+  population_sizes = [20]
+  max_runs_of_genetic_algorithm = 1000
+  elit_pop_sizes = [50]
+  selection_op_values =[1.0] # values we want to test genetic algorithm
+  cross_over_values =[1.0] # values we want to check crossover
+  mutation_op_values =[0.8] # values we want to check mutation
+  toplogy_wk_scheme_result_file = "results/toplogy_wk_scheme_result.csv"
     
 
 def get_config(FLAGS):
