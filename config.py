@@ -51,7 +51,7 @@ class Config(NetworkConfig):
   edge_fidelity_ranges = [0.9]
   edge_capacity_bounds = [400]
   schemes = ["EGR","Hop","EGRSquare","Genetic"]# Set the schemes that you want to evaluate. If you want to evaluate only genetic algorithm, set only Genetic keyword in the list
-  schemes = ["Genetic"]
+  schemes = ["RL"]
   purification_scheme =  ["end_level"]
   cut_off_for_path_searching = 3# We use this cut off when we search for the set of paths that a user pair can use
   num_of_organizations = 1

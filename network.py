@@ -16,6 +16,7 @@ import os
 import random
 from solver import Solver
 from genetic_algorithm import Genetic_algorithm
+from train import RL
 import pdb
 
 from os import listdir
@@ -95,7 +96,9 @@ class Network:
         self.cut_off_for_path_searching = max(int(config.cut_off_for_path_searching),config.num_of_paths)
         self.load_topology(edge_capacity_bound)
         
-        
+    def evaluate_rl_for_path_selection(self,config):
+        rl = RL()
+        rl.main(config,self)
     def evaluate_shortest_path_routing(self,link_cost_metric):
         """this function evaluates the entanglement generation rate using 
         shortest paths computed based on the given link cost metric"""
@@ -250,8 +253,7 @@ class Network:
                                       (wk_idx,max_fitness_value,best_chromosome))
     
     
-    def evaluate_rl_for_path_selection(self):
-        pass
+   
                                     
     def load_topology(self,each_edge_capacity_upper_bound):
         self.set_E=[]

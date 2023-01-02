@@ -15,6 +15,7 @@ import ast
 from network import Network
 from config import get_config
 from solver import Solver
+
 import time
 import os
 FLAGS = flags.FLAGS
@@ -62,7 +63,7 @@ def main(_):
                                             elif scheme =="Genetic":
                                                 network.evaluate_genetic_algorithm_for_path_selection(config)
                                             elif scheme =="RL":
-                                                network.evaluate_rl_for_path_selection()
+                                                network.evaluate_rl_for_path_selection(config)
                                             else:
                                                 print("not valid scheme (%s): set schemes from EGR, EGRSquare,Hop, Genetic, or RL keywords"%(scheme))
 
