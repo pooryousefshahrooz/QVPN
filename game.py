@@ -43,136 +43,69 @@ class CFRRL_Game():
         random_seed=1000
         self.random_state = np.random.RandomState(seed=random_seed)
         self.model_type = config.model_type
-        
         self.project_name = config.project_name
+        self.each_wk_action_reward ={}
+        self.each_testing_wk_action_reward = {}
+        self.all_flows_across_workloads = []
         #env.num_pairs = self.num_pairs
-        self.action_dim = network.path_counter
-        self.each_wk_each_k_user_pair_ids =network.each_wk_each_k_user_pair_ids
-        self.max_moves = network.num_of_paths*config.number_of_user_pairs
-        self.num_of_organizations=network.num_of_organizations
-        self.number_of_user_pairs=network.number_of_user_pairs
+        self.compute_state_action_dimensions(network)
         
-        self.each_wk_each_k_user_pair_ids= network.each_wk_each_k_user_pair_ids
-        self.each_wk_k_weight=network.each_wk_k_weight
-        self.each_wk_k_u_weight = network.each_wk_k_u_weight
-        self.each_wk_k_fidelity_threshold=network.each_wk_k_fidelity_threshold
+        self.max_moves = network.num_of_paths*network.number_of_flows
+        
         #print("self.max_moves %s self.action_dim %s self.max_moves %s self.action_dim %s"
        #       %(self.max_moves , self.action_dim, self.max_moves, self.action_dim))
         #assert self.max_moves <= self.action_dim, (self.max_moves, self.action_dim)
-        self.wk_cnt=network.work_load_counter
-        self.wk_indexes = np.arange(0, self.wk_cnt)
         
-        state = np.zeros((1, config.num_of_organizations*config.number_of_user_pairs,1), dtype=np.float32)   # state  []
-        self.state_dims =  state.shape
         if config.method == 'pure_policy':
             self.baseline = {}
-        self.each_wk_optimal_egr = {}
-        self.each_wk_action_reward = {}
-        self.each_wk_optimal_egr_paths = {}
-        #self.generate_inputs(normalization=True)
-        #self.state_dims = self.normalized_traffic_matrices.shape[1:]
         print('Input dims :', self.state_dims)
+        print('Output dims :', self.state_dims)
         print('Max moves :', self.max_moves)
-     
-    def select_random_user_pairs(self):
-        each_t_user_pairs = {}
-        each_user_each_t_weight = {}
-        candidate_user_pairs = []
-        number_of_user_pairs = 3
-        nodes = []
-        for i in range(25):
-            nodes.append(i)
-        for src in nodes:
-            for dst in nodes:
-                if src!=dst:
-                    if (src,dst) not in candidate_user_pairs and (dst,src) not in candidate_user_pairs:
-                        candidate_user_pairs.append((src,dst))
-        selected_user_pairs = []
-
-        while(len(selected_user_pairs)<number_of_user_pairs):
-            user_pair = candidate_user_pairs[random.randint(0,len(candidate_user_pairs)-1)]
-            if user_pair not in selected_user_pairs:
-                selected_user_pairs.append(user_pair)
-
-        return selected_user_pairs
-    def generate_work_load(self):
-        pairs_in_order = []
-        num_nodes = 26
-        f = open("data/ATT_original", 'r')
-        traffic_matrices = []
-        work_load_counter = 0
-        for line in f:
-            pairs_in_order = []
-            volumes = line.strip().split(' ')
-            volumes = line.strip().split(' ')
-            total_volume_cnt = len(volumes)
-            for v in range(total_volume_cnt):
-                i = int(v/num_nodes)
-                j = v%num_nodes
-                pairs_in_order.append((i,j))
-
-        for work_load in range(1000):
-            print(" workload %s done from %s "%(work_load,1000))
-            selected_user_pairs = select_random_user_pairs()
-            line_string = ""
-            for user_pair in pairs_in_order:
-                if user_pair in selected_user_pairs:
-                    weight = 1
-                else:
-                    weight = 0
-                if line_string:
-                    line_string = line_string+" "+str(weight)
-                else:
-                    line_string = str(weight)
-            with open('data/ATTWK', 'a') as file: 
-                file.write(line_string+"\n")
-    def generate_inputs(self, normalization=True):
-        pairs_in_order = []
-        num_nodes = 26
-        f = open("data/ATT_original", 'r')
-        traffic_matrices = []
-        work_load_counter = 0
-        all_active_user_pairs_acros_wks = []
-        for line in f:
-            pairs_in_order = []
-            volumes = line.strip().split(' ')
-            volumes = line.strip().split(' ')
-            total_volume_cnt = len(volumes)
-            for v in range(total_volume_cnt):
-                i = int(v/num_nodes)
-                j = v%num_nodes
-                pairs_in_order.append((i,j))
-    
-
-    def get_state(self, wk_idx):
-        state = np.zeros((1, self.num_of_organizations*self.number_of_user_pairs,1), dtype=np.float32)
-        indx= 0
-        for k,user_pairs in self.each_wk_each_k_user_pair_ids[wk_idx].items():
-            for user in user_pairs:
-                state[0][indx] = user
-                indx+=1
-#         for k,user_pair_ids in self.each_wk_each_k_user_pair_ids[wk_idx].items():
-#             state[0][indx] = self.each_wk_k_weight[wk_idx][k]
-#             indx+=1
-#         for k,user_pairs in self.each_wk_each_k_user_pair_ids[wk_idx].items():
-#             for user in user_pairs:
-#                 state[0][indx] = self.each_wk_k_u_weight[wk_idx][k][user]
-#                 indx+=1
-#         for k in self.each_wk_each_k_user_pair_ids[wk_idx]:
-#             state[0][indx] = self.each_wk_k_fidelity_threshold[wk_idx][k]
-#             indx+=1
+    def compute_state_action_dimensions(self,network):
+        """This function reads the workload from the topology+WK  and topology+WK2 files and set the dimensions of state and action"""
+        self.all_flows_across_workloads = []
+        for wk,k_flows in network.each_wk_each_k_user_pairs.items():
+            for k,flows in k_flows.items():
+                for flow in flows:
+                    if flow not in self.all_flows_across_workloads:
+                        self.all_flows_across_workloads.append(flow)
+        for wk,k_flows in network.each_testing_wk_each_k_user_pairs.items():
+            for k,flows in k_flows.items():
+                for flow in flows:
+                    if flow not in self.all_flows_across_workloads:
+                        self.all_flows_across_workloads.append(flow)
         
-        #print("state is ",state)
+        state = np.zeros((1, len(self.all_flows_across_workloads),1), dtype=np.float32)   # state  []
+        self.state_dims =  state.shape
+        self.wk_indexes = np.arange(0, len(network.work_loads))
+        self.testing_wk_indexes = np.arange(0, len(network.testing_work_loads))
+        self.action_dim = network.path_counter_id
+        
+    def get_state(self, wk_idx,network,testing_falg):
+        state = np.zeros((1, len(self.all_flows_across_workloads),1), dtype=np.float32)   # state  []
+        indx= 0
+        for flow in self.all_flows_across_workloads:
+            flow_id = network.each_pair_id[flow]
+            if testing_falg:
+                if flow_id in network.each_testing_wk_each_k_user_pair_ids[wk_idx][0]:                
+                    weight = network.each_testing_wk_k_u_weight[wk_idx][0][flow_id]
+                    state[0][indx] = weight
+                else:
+                    state[0][indx] = 0
+            else:
+                if flow_id in network.each_wk_each_k_user_pair_ids[wk_idx][0]:                
+                    weight = network.each_wk_k_u_weight[wk_idx][0][flow_id]
+                    state[0][indx] = weight
+                else:
+                    state[0][indx] = 0
+            indx+=1
         return state
     def compute_egr(self,actions,wk_idx,network,solver):
         network.each_wk_each_k_each_user_pair_id_paths = {}
         for k,user_pair_ids in network.each_wk_each_k_user_pair_ids[wk_idx].items():
             for user_pair in user_pair_ids:
                 having_at_least_one_path_flag = False
-                path_ids=[]
-                for link_cost_metric in network.link_cost_metrics:
-                    for p_id in network.each_scheme_each_user_pair_paths[link_cost_metric][user_pair]:
-                        path_ids.append(p_id)
+                path_ids = network.each_user_pair_all_paths[user_pair]
                 for path_id in path_ids:
                     if path_id in actions:
                         having_at_least_one_path_flag = True
@@ -202,8 +135,6 @@ class CFRRL_Game():
                                     network.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
                                     network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                                     network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair] = [path_id]
-
-                
                 if not having_at_least_one_path_flag:
                     try:
                         network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair] = []
@@ -216,77 +147,142 @@ class CFRRL_Game():
                             network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k]={}
                             network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair] = []
         
-        if not network.setting_basic_fidelity_flag:
-            network.set_each_path_basic_fidelity()
-            network.setting_basic_fidelity_flag = True
-            """we set the required EPR pairs to achieve each fidelity threshold"""
-            network.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx)       
         
-        egr = solver.CPLEX_maximizing_EGR(wk_idx,network)
+        """we set the required EPR pairs to achieve each fidelity threshold"""
+        network.purification.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx)       
+        
+        egr = solver.CPLEX_maximizing_EGR(wk_idx,network,0,0)
         return egr
+    
+    
+    def set_paths_from_action(self,action,wk_idx,network,testing_flag):
+        """this function uses the information in the chromosome 
+        to set the paths to the data structure that will be used by solver"""
+        network.each_wk_each_k_each_user_pair_id_paths={}
+        network.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
+        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][0]={}
+        network.each_wk_each_k_user_pair_ids = {}
+        network.each_wk_k_u_weight = {}
+        network.each_wk_k_u_pair_weight = {}
+        path_indx = 0
+        if testing_flag:
+#             print("these are k in network.each_testing_wk_organizations[wk_idx]",network.each_testing_wk_organizations[wk_idx])
+            for k in network.each_testing_wk_organizations[wk_idx]:
+#                 print("for these flows ",network.each_testing_wk_each_k_user_pair_ids[wk_idx][k])
+                for user_pair_id in network.each_testing_wk_each_k_user_pair_ids[wk_idx][k]:
+                    path_counter_for_this_flow = 0
+                    try:
+                        network.each_wk_each_k_user_pair_ids[wk_idx][k].append(user_pair_id)
+                    except:
+                        try:
+                            network.each_wk_each_k_user_pair_ids[wk_idx][k]=[user_pair_id]
+                            
+                        except:
+                            try:
+                                network.each_wk_each_k_user_pair_ids[wk_idx][k]={}
+                                network.each_wk_each_k_user_pair_ids[wk_idx][k]=[user_pair_id]
+                            except:
+                                network.each_wk_each_k_user_pair_ids[wk_idx]={}
+                                network.each_wk_each_k_user_pair_ids[wk_idx][k]={}
+                                network.each_wk_each_k_user_pair_ids[wk_idx][k]=[user_pair_id]
+                            
+                    user_pair = network.each_id_pair[user_pair_id]
+                    paths = network.each_user_pair_all_paths[user_pair_id]
+                    paths = list(set(paths))
+                    not_even_one_path = False
+#                     print("network.each_testing_user_organization",network.each_testing_user_organization)
+                    k = network.each_testing_user_organization[user_pair_id]
+                    for path_id in paths:
+                        if path_id in action and path_counter_for_this_flow <network.num_of_paths:
+                            path_counter_for_this_flow+=1
+                            not_even_one_path = True
+                            try:
+                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                            except:
+                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+                    if not not_even_one_path:
+                        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = []
+                    try:
+                        network.each_wk_k_u_weight[wk_idx][k][user_pair_id] = network.each_testing_wk_k_u_weight[wk_idx][k][user_pair_id]
+                    except:
+                        try:
+                            network.each_wk_k_u_weight[wk_idx][k]={}
+                            network.each_wk_k_u_weight[wk_idx][k][user_pair_id] = network.each_testing_wk_k_u_weight[wk_idx][k][user_pair_id]
+                        except:
+                            network.each_wk_k_u_weight[wk_idx]={}
+                            network.each_wk_k_u_weight[wk_idx][k]={}
+                            network.each_wk_k_u_weight[wk_idx][k][user_pair_id] = network.each_testing_wk_k_u_weight[wk_idx][k][user_pair_id]
+                    try:
+                        network.each_wk_k_u_pair_weight[wk_idx][k][user_pair] = network.each_testing_wk_k_u_pair_weight[wk_idx][k][user_pair]
+                    except:
+                        try:
+                            network.each_wk_k_u_pair_weight[wk_idx][k]={}
+                            network.each_wk_k_u_pair_weight[wk_idx][k][user_pair] = network.each_testing_wk_k_u_pair_weight[wk_idx][k][user_pair]
+                        except:
+                            network.each_wk_k_u_pair_weight[wk_idx]={}
+                            network.each_wk_k_u_pair_weight[wk_idx][k]={}
+                            network.each_wk_k_u_pair_weight[wk_idx][k][user_pair] = network.each_testing_wk_k_u_pair_weight[wk_idx][k][user_pair]     
+                    
+        else:
+            for k in network.each_wk_organizations[wk_idx]:
+                for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                    paths = network.each_user_pair_all_paths[user_pair_id]
+                    not_even_one_path = False
+                    path_counter_for_this_flow = 0
+                    for path_id in paths:
+                        if path_id in action and path_counter_for_this_flow <network.num_of_paths:
+                            path_counter_for_this_flow+=1
+                            not_even_one_path = True
+                            k = network.each_user_organization[user_pair_id]
+                            try:
+                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                            except:
+                                try:
+                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+                                except:
+                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+                    if not not_even_one_path:
+                        try:
+                            network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = []
+                        except:
+                            try:
+                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = []
+                            except:
+                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[]
+                
+     
+        """we set the required EPR pairs to achieve each fidelity threshold"""
+        network.purification.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx)
+        
+
+    
     def reward(self, wk_idx,network, actions,solver):
-        #print("compuiting reward.....")
+        """computes the reward. It first uses the action to set the paths in the network and then call the solvers"""
         chosen_paths = []
         for item in actions:
             chosen_paths.append(item)
         chosen_paths.sort()
+        
+        
+#         print("in reward we have these paths **************************** ",chosen_paths)
         try:
             if wk_idx in self.each_wk_action_reward:
                 if tuple(chosen_paths) in self.each_wk_action_reward[wk_idx]:
-                    rl_egr = self.each_wk_action_reward[wk_idx][tuple(chosen_paths)]
+                    rl_egr_value = self.each_wk_action_reward[wk_idx][tuple(chosen_paths)]
                 else:
-                    rl_egr = self.compute_egr(actions,wk_idx,network,solver)
-                    self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr
-
+                    rl_egr_value = self.compute_egr(actions,wk_idx,network,solver)
+                    self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
             else:
-                rl_egr = self.compute_egr(actions,wk_idx,network,solver)
+                rl_egr_value = self.compute_egr(actions,wk_idx,network,solver)
                 self.each_wk_action_reward[wk_idx] = {}
-                self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr
+                self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
         except:
-            rl_egr = self.compute_egr(actions,wk_idx,network,solver)
+            self.set_paths_from_action(chosen_paths,wk_idx,network,False)
+            rl_egr_value  = solver.CPLEX_maximizing_EGR(wk_idx,network,2,2)
             self.each_wk_action_reward[wk_idx] = {}
-            self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr
-
-        #print("rl gave us egr ",rl_egr)
-#         for u,paths in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][0].items():
-#             print("for wk %s k %s u %s paths %s"%(wk_idx,0,u,paths))
-        
-#         try:
-#             if wk_idx in self.each_wk_optimal_egr:
-#                 optimal_egr = self.each_wk_optimal_egr[wk_idx]
-#                 optimal_egr_paths = self.each_wk_optimal_egr_paths[wk_idx]
-#             else:
-#                 optimal_egr,optimal_paths = self.compute_optimal_egr(wk_idx,network,solver)
-#                 self.each_wk_optimal_egr[wk_idx]= optimal_egr
-#                 self.each_wk_optimal_egr_paths[wk_idx] =optimal_paths
-#         except:
-#             optimal_egr,optimal_paths = self.compute_optimal_egr(wk_idx,network,solver)
-#             self.each_wk_optimal_egr[wk_idx]= optimal_egr
-#             self.each_wk_optimal_egr_paths[wk_idx] =optimal_paths
-#         if optimal_egr==0 or rl_egr>optimal_egr:
-#             for k in network.each_wk_organizations[wk_idx]:
-#                 for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-#                     print("k %s u %s"%(k,u))
-#                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
-#                         print("wk %s k %s w %s user %s w %s path %s edges %s"%(wk_idx,k,network.each_wk_k_weight[wk_idx][k],u,network.each_wk_k_u_weight[wk_idx][k][u],p,network.set_of_paths[p]))
-#             pdb.set_trace()
-        optimal_egr = 400
-        if optimal_egr>0:
-            reward = rl_egr/optimal_egr
-        else:
-            reward =0
-        #else:
-            #reward=0
-        
-        #print("workload %s is RL %s optimal %s reward %s "%(wk_idx,rl_egr,optimal_egr,reward))
-#         if reward >1:
-#             print("actions are  %s egr is %s"%(actions,rl_egr))
-#             print("actions of optimal are %s egr is %s "%(optimal_egr_paths,optimal_egr))
-#             #time.sleep(10)
-            #pdb.set_trace()
-        #print("returning reward ",reward)
-        return reward
-    
+            self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
+        #print("**************  reward during training is ************** ",rl_egr_value)
+        return rl_egr_value
     def find_combos(self,arr,k):
         combos = list(combinations(arr, k))
         return combos
@@ -296,7 +292,6 @@ class CFRRL_Game():
             paths = self.find_combos(paths,k)
             if paths:
                 all_user_paths.append(paths)
-
         all_possible_actions = list(itertools.product(*all_user_paths))
         return all_possible_actions
     def compute_optimal_egr(self,wk_idx,network,solver):
@@ -324,14 +319,6 @@ class CFRRL_Game():
             return max_egr,optimal_paths
         else:
             return 0,[]
-    def get_all_trainig_epochs(self):
-        indx = 1
-        epochs = [1,39]
-        while(max(epochs)<719):
-            epochs.append(max(epochs)+40)
-        while(max(epochs)<20000):
-            epochs.append(max(epochs)+200)
-        return (list(epochs))
     def advantage(self, tm_idx, reward):
         if tm_idx not in self.baseline:
             return reward
@@ -352,43 +339,39 @@ class CFRRL_Game():
             self.baseline[tm_idx] = (total_v, cnt)
         else:
             self.baseline[tm_idx] = (reward, 1)
-
-   
-        
     def evaluate(self,wk_idx,network,solver,scheme,actions):
-        egr = 0
         if scheme =="RL":
-            egr = self.compute_egr(actions,wk_idx,network,solver)
-            optimal_egr,optimal_paths = self.compute_optimal_egr(wk_idx,network,solver)
-            if egr>optimal_egr:
-                print("for RL scheme %s we have these paths %s # %s and egr is %s "%(scheme,actions,len(actions),egr))
-                print("optimal_egr is %s with paths %s "%(optimal_egr,optimal_paths))
-                time.sleep(5)
-                import pdb
-                pdb.set_trace()
-        elif scheme  in ["hop","EGR","EGRsquare"]:
-            actions = []
-            for k in network.each_wk_organizations[wk_idx]:
-                for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-                    paths = network.each_scheme_each_user_pair_paths[scheme][user_pair_id]
-                    for path in paths:
-                        actions.append(path)
+            chosen_paths = []
+            for item in actions:
+                chosen_paths.append(item)
+            chosen_paths.sort()
+            all_paths = []
+            for p,edges in network.set_of_paths.items():
+                if edges in all_paths:
+                    print("****************************************** ERROR! ***********************")
+                    print("edges ",edges)
+                all_paths.append(edges)
             
-            egr = self.compute_egr(actions,wk_idx,network,solver)
-#             print("for scheme %s we have these paths %s # %s and egr is %s "%(scheme,actions,len(actions),egr))
-#             time.sleep(4)
-        if scheme =="Optimal":
-            egr,_ = self.compute_optimal_egr(wk_idx,network,solver)
-#             if egr==0:
-#                 for k in network.each_wk_organizations[wk_idx]:
-#                     for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-#                         for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
-#                             print("wk %s k %s w %s user %s w %s path %s edges %s"%(wk_idx,k,network.each_wk_k_weight[wk_idx][k],u,network.each_wk_k_u_weight[wk_idx][k][u],p,network.set_of_paths[p]))
-#                 pdb.set_trace()
-            #print("for scheme %s we have egr is %s "%(scheme,egr))
-#         time.sleep(4)
-        return egr    
-        
+            
+#             try:
+#                 if wk_idx in self.each_wk_action_reward:
+#                     if tuple(chosen_paths) in self.each_testing_wk_action_reward[wk_idx]:
+#                         rl_egr_value = self.each_testing_wk_action_reward[wk_idx][tuple(chosen_paths)]
+#                     else:
+#                         rl_egr_value = self.compute_egr(actions,wk_idx,network,solver)
+#                         self.each_testing_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
+#                 else:
+#                     rl_egr_value = self.compute_egr(actions,wk_idx,network,solver)
+#                     self.each_testing_wk_action_reward[wk_idx] = {}
+#                     self.each_testing_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
+#             except:
+            self.set_paths_from_action(chosen_paths,wk_idx,network,True)
+            rl_egr_value  = solver.CPLEX_maximizing_EGR(wk_idx,network,2,2)
+            self.each_testing_wk_action_reward[wk_idx] = {}
+            self.each_testing_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
+
+            return rl_egr_value
+            
                 
                 
 
@@ -396,12 +379,7 @@ class CFRRL_Game():
 # In[ ]:
 
 
-# import numpy as np
 
-# state = np.zeros(( 6), dtype=np.float32)   # state  [1, link, B]
-# input_dims =  state.shape
-# print(state)
-# print(state.shape)
 
 
 # In[ ]:
@@ -419,43 +397,7 @@ class CFRRL_Game():
 # In[ ]:
 
 
-# # # wk_idx 9 one set of paths [22, 70, 119] for user pair 24 
-# # # wk_idx 9 one set of paths [23, 71, 120] for user pair 25 
-# # # wk_idx 9 one set of paths [] for user pair 26 
-# import itertools
-# from itertools import combinations
-# def find_combos(arr,k):
-#         combos = list(combinations(arr, k))
-#         return combos
-# def get_all_possible_actions(each_user_paths,k):
-#     all_user_paths = []
-#     for user,paths in each_user_paths.items():
-#         if paths:
-#             for i in range(1,)
-#             possible_actions =  itertools.combinations(paths, 2)
-#             for action in possible_actions:
-#                 all_possible_actions.append(action)
-        
-#         paths = find_combos(paths,k)
-#         if paths:
-#             all_user_paths.append(paths)
-#     print("all_user_paths",all_user_paths)
-#     possible_actions = list(itertools.product(*all_user_paths))
-#     all_possible_actions = []
-#     for action in possible_actions:
-#         all_possible_actions.append(action)
-#     for user,paths in each_user_paths.items():
-#         if paths: 
-#             possible_actions =  itertools.combinations(paths, 2)
-#             for action in possible_actions:
-#                 all_possible_actions.append(action)
-#     return all_possible_actions
-# k=1
-# each_user_paths = {24:[22, 70, 119,(22,70)],25:[23, 71, 120],26:[]}
-# all_possible_actions = get_all_possible_actions(each_user_paths,k)
-# # print("all_possible_actions",all_possible_actions)
-# for actions in all_possible_actions:
-#     print("one possible action ",actions)
+
 
 
 # In[ ]:
@@ -467,131 +409,19 @@ class CFRRL_Game():
 # In[52]:
 
 
-def select_random_user_pairs(num_nodes,user_population):
-    each_t_user_pairs = {}
-    each_user_each_t_weight = {}
-    candidate_user_pairs = []
-    
-    nodes = []
-    import random
-    for i in range(num_nodes):
-        nodes.append(i)
-    while(len(candidate_user_pairs)<user_population):
-        for src in nodes:
-            for dst in nodes:
-                if src!=dst:
-                    if random.uniform(0, 1)>0.8:
-                        if (src,dst) not in candidate_user_pairs and (dst,src) not in candidate_user_pairs:
-                            if len(candidate_user_pairs)<user_population:
-                                candidate_user_pairs.append((src,dst))
-    return candidate_user_pairs
-def get_user_pairs(candidate_user_pairs):
-    import random
-    selected_user_pairs = []
-    number_of_user_pairs = 6
-    while(len(selected_user_pairs)<number_of_user_pairs):
-        user_pair = candidate_user_pairs[random.randint(0,len(candidate_user_pairs)-1)]
-        if user_pair not in selected_user_pairs:
-            selected_user_pairs.append(user_pair)
-
-    return selected_user_pairs
-def generate_work_load(work_loads,num_nodes,user_population,percentage_of_workload_for_testing,work_load_file_name):
-    pairs_in_order = []
-    
-    #f = open("data/ATT_original", 'r')
-    traffic_matrices = []
-    work_load_counter = 0
-    counter = 0
-#     for line in f:
-#         pairs_in_order = []
-#         volumes = line.strip().split(' ')
-#         volumes = line.strip().split(' ')
-#         total_volume_cnt = len(volumes)
-        
-#         for v in range(total_volume_cnt):
-#             i = int(v/num_nodes)
-#             j = v%num_nodes
-#             if counter <10:
-#                 print("total_volume_cnt, pairs in order are ",total_volume_cnt,(i,j))
-    for i in range(num_nodes):
-        for j in range(num_nodes):
-            if (i,j) not in pairs_in_order:
-                pairs_in_order.append((i,j))
-       
-        
-    print("done")
-    candidate_user_pairs = select_random_user_pairs(num_nodes,user_population)
-    print("candidate_user_pairs",candidate_user_pairs)
-    used_candidate_user_pairs = []
-    for work_load in range(work_loads):
-        print(" workload %s done from %s "%(work_load,work_loads))
-        selected_user_pairs =get_user_pairs(candidate_user_pairs)
-        for pair in selected_user_pairs:
-            if pair not in used_candidate_user_pairs:
-                used_candidate_user_pairs.append(pair)
-        line_string = ""
-        print("selected_user_pairs",selected_user_pairs)
-        for user_pair in pairs_in_order:
-            if user_pair in selected_user_pairs:
-                weight = 1
-            else:
-                weight = 0
-            if line_string:
-                line_string = line_string+" "+str(weight)
-            else:
-                line_string = str(weight)
-        with open(work_load_file_name, 'a') as file: 
-            file.write(line_string+"\n")
-    used_in_testing_pairs = []
-    adding_to_testing_file_flag=True
-    candidate_user_pairs = []
-    while(adding_to_testing_file_flag):
-        work_load = 0
-        
-        while(work_load < int(percentage_of_workload_for_testing/100*work_loads) and len(used_in_testing_pairs)!= len(used_candidate_user_pairs)):
-            print(" workload %s done from %s "%(work_load,work_loads))
-            for pair in used_candidate_user_pairs:
-                if pair not in used_in_testing_pairs:
-                      candidate_user_pairs.append(pair)
-
-            selected_user_pairs =get_user_pairs(candidate_user_pairs)
-            for pair in selected_user_pairs:
-                if pair not in used_in_testing_pairs:
-                    used_in_testing_pairs.append(pair)
-            line_string = ""
-            print("selected_user_pairs",selected_user_pairs)
-            for user_pair in pairs_in_order:
-                if user_pair in selected_user_pairs:
-                    weight = 1
-                else:
-                    weight = 0
-                if line_string:
-                    line_string = line_string+" "+str(weight)
-                else:
-                    line_string = str(weight)
-
-            with open(work_load_file_name+"2", 'a') as file: 
-                file.write(line_string+"\n")
-        if len(used_in_testing_pairs)== len(used_candidate_user_pairs):
-            adding_to_testing_file_flag=False
 
 
-# In[54]:
+
+# In[ ]:
 
 
-# work_loads =50
-# num_of_nodes = 50
-# user_population=30
-# percentage_of_workload_for_testing = 20
-# work_load_file_name='data/SURFnetWK'
-# generate_work_load(work_loads,num_of_nodes,user_population,percentage_of_workload_for_testing,work_load_file_name)
 
 
 
 # In[41]:
 
 
-print(20/100*100)
+
 
 
 # In[ ]:

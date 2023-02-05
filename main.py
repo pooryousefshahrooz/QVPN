@@ -15,7 +15,7 @@ import ast
 from network import Network
 from config import get_config
 from solver import Solver
-
+from purification import Purification
 import time
 import os
 FLAGS = flags.FLAGS
@@ -29,10 +29,10 @@ def main(_):
     for num_paths in range(int(config.min_num_of_paths),int(config.num_of_paths)+1):
         for edge_capacity_bound in config.edge_capacity_bounds:
             for topology in config.list_of_topologies:
-                network = Network(config,topology,edge_capacity_bound,False)
+                purification = Purification()
+                network = Network(config,purification,topology,edge_capacity_bound,False)
                 for fidelity_threshold_up_range in config.fidelity_threshold_ranges:
                     network.fidelity_threshold_range = fidelity_threshold_up_range
-                    
                     for edge_fidelity_range in config.edge_fidelity_ranges:
                         print("config.purification_scheme",config.purification_scheme)
                         for purificaion_scheme in config.purification_scheme:
@@ -42,7 +42,7 @@ def main(_):
                                 network.end_level_purification_flag = False
 
 
-                            network.set_edge_fidelity(edge_fidelity_range)
+                            #network.set_edge_fidelity(edge_fidelity_range)
                             # we get all the paths for all workloads
                             network.num_of_paths = num_paths
 
@@ -51,15 +51,16 @@ def main(_):
                                 network.set_nodes_q_value()
                                 for number_of_flows in network.number_of_flow_set:
                                     network.number_of_flows = number_of_flows
-                                    network.set_flows_of_organizations()
-                                    network.set_each_wk_k_fidelity_threshold()
                                     for alpha_value in [0.01]:
                                         network.update_link_rates(alpha_value)
-                                        network.get_path_info()
                                         for scheme in config.schemes:
                                             print("for scheme %s flow size %s "%(scheme,number_of_flows))
+                                            network.running_path_selection_scheme = scheme
+                                            network.set_flows_of_organizations()
+                                            #network.purification.set_each_wk_k_fidelity_threshold()
+                                            network.get_path_info()
                                             if scheme in ["EGR","EGRSquare","Hop"]:
-                                                network.evaluate_shortest_path_routing(scheme)
+                                                network.evaluate_shortest_path_routing(config,scheme)
                                             elif scheme =="Genetic":
                                                 network.evaluate_genetic_algorithm_for_path_selection(config)
                                             elif scheme =="RL":
@@ -68,7 +69,7 @@ def main(_):
                                                 print("not valid scheme (%s): set schemes from EGR, EGRSquare,Hop, Genetic, or RL keywords"%(scheme))
 
 
-# In[ ]:
+# In[3]:
 
 
 # import time
