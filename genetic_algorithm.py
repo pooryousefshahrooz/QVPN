@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[3]:
 
 
 import networkx as nx
@@ -29,6 +29,8 @@ class Genetic_algorithm:
         self.mutation_p = 1
         self.selection_p = 1
         self.elit_pop_size =10 
+        self.multi_point_crossover_value = config.multi_point_crossover_value
+        self.multi_point_mutation_value = config.multi_point_mutation_value
         self.number_of_chromosomes = 10# you can set how many chromosome you want to have in each chromosome in config file
         self.max_runs_of_genetic_algorithm = int(config.max_runs_of_genetic_algorithm)# how many generations we want to run genetic algorithm
         self.each_path_replaceable_paths = {}
@@ -50,17 +52,38 @@ class Genetic_algorithm:
         """this function applies crossover operator to the given chromosomes"""
         new_chromosome1 = []
         new_chromosome2 = []
-        random_value = random.uniform(0,1)
-        if random_value <=self.crossover_p:
-            random_point  = random.randint(0,len(chromosome1)-1)
-            for i in range(0,random_point):
-                new_chromosome1.append(chromosome1[i])
-            for j in range(random_point,len(chromosome2)):
-                new_chromosome1.append(chromosome2[j])
-            for i in range(0,random_point):
-                new_chromosome2.append(chromosome2[i])
-            for j in range(random_point,len(chromosome2)):
-                new_chromosome2.append(chromosome1[j])
+        points = []
+    
+        while (len(points)< self.multi_point_crossover_value):
+            random_value = random.randint(0,len(chromosome1)-1)
+            if random_value not in points:
+                points.append(random_value)
+        points.sort()
+        start_point = 0
+        points_indexes = []
+        random_value_crossover = random.uniform(0,1)
+        if random_value_crossover <=self.crossover_p:
+            flag = True
+            for random_point in points:
+                if flag:
+                    flag = False
+                    for i in range(start_point,random_point):
+                        new_chromosome2.append(chromosome1[i])
+                    for i in range(start_point,random_point):
+                        new_chromosome1.append(chromosome2[i])
+                else:
+                    flag = True
+                    for i in range(start_point,random_point):
+                        new_chromosome2.append(chromosome2[i])
+                    for i in range(start_point,random_point):
+                        new_chromosome1.append(chromosome1[i])
+                start_point = random_point
+
+
+            for j in range(max(points),len(chromosome2)):
+                    new_chromosome1.append(chromosome2[j])
+            for j in range(max(points),len(chromosome2)):
+                    new_chromosome2.append(chromosome1[j]) 
         else:
             new_chromosome1= chromosome1
             new_chromosome2 = chromosome2
@@ -72,13 +95,19 @@ class Genetic_algorithm:
         """this function applies mutation operator to the given chromosome"""
         random_value = random.uniform(0,1)
         if random_value <=self.mutation_p:
-            random_point  = random.randint(0,len(chromosome)-1)
-            possible_values = self.each_path_replaceable_paths[chromosome[random_point]]
-            new_value = chromosome[random_point]
-            if len(possible_values)>1:
-                while(new_value==chromosome[random_point]):
-                    new_value = possible_values[random.randint(0,len(possible_values)-1)]
-            chromosome[random_point]= new_value
+            points = []
+            while(len(points)< self.multi_point_mutation_value):
+                random_value = random.randint(0,len(chromosome)-1)
+                if random_value not in points:
+                    points.append(random_value)
+            points.sort()
+            for random_point in points:
+                possible_values = self.each_path_replaceable_paths[chromosome[random_point]]
+                new_value = chromosome[random_point]
+                if len(possible_values)>1:
+                    while(new_value==chromosome[random_point]):
+                        new_value = possible_values[random.randint(0,len(possible_values)-1)]
+                chromosome[random_point]= new_value
         return chromosome
     def selection_random_chromosomes(self,number):
         assert number in [1,2],"Either ask one or two chromosomes!"
@@ -152,8 +181,12 @@ class Genetic_algorithm:
         pass
         if self.dynamic_policy_flag and runs_of_genetic_algorithm % config.ga_elit_pop_update_step == config.ga_elit_pop_update_step - 1:            
             self.elit_pop_size =max(self.elit_pop_size-5,10) 
+            
+        if self.dynamic_policy_flag and runs_of_genetic_algorithm % config.ga_crossover_mutation_update_step == config.ga_crossover_mutation_update_step - 1:            
+
+            self.crossover_p = min(self.crossover_p+0.05,0.8)
 #             self.selection_p = min(self.selection_p+0.05,0.4)
-#             self.crossover_p = max(self.crossover_p-0.05,0.1)
+
 #             self.mutation_p = max(self.crossover_p-0.03,0.1)
             #print(" ********* Hyper parameters are updated *************** ")
         

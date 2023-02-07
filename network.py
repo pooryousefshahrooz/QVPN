@@ -257,7 +257,7 @@ class Network:
                                         genetic_alg.crossover_p,genetic_alg.mutation_p,runs_of_algorithm,
                                         egr,genetic_alg.number_of_chromosomes,optimal_egr,run_number,
                                         config.genetic_algorithm_random_initial_population,
-                                        config.ga_elit_pop_update_step,config.cut_off_for_path_searching])
+                                        config.ga_elit_pop_update_step,config.cut_off_for_path_searching,config.multi_point_mutation_value,config.multi_point_crossover_value])
         elif shortest_path_flag:
             with open(self.toplogy_wk_scheme_result, 'a') as newFile:                                
                 newFileWriter = csv.writer(newFile)

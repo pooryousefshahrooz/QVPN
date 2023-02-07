@@ -54,14 +54,14 @@ class Config(NetworkConfig):
   edge_fidelity_ranges = [0.9]
   edge_capacity_bounds = [400]
   schemes = ["EGR","Hop","EGRSquare","Genetic","RL"]# Set the schemes that you want to evamluate. If you want to evaluate only genetic algorithm, set only Genetic keyword in the list
-  schemes = ["RL"]
+  schemes = ["Genetic"]
   purification_scheme =  ["end_level"]
   
   num_of_organizations = 1
   number_of_user_pairs = 1 # Number of user pairs that exist for each organization. 
-  min_num_of_paths = 3
-  num_of_paths = 3
-  cut_off_for_path_searching = 5# We use this cut off when we search for the set of paths that a user pair can use
+  min_num_of_paths = 6
+  num_of_paths = 6
+  cut_off_for_path_searching = 15# We use this cut off when we search for the set of paths that a user pair can use
   q_values = [1]# Different values of q (swap success probability) that we want to evaluate in the experiment
   number_of_work_loads = 1
   number_of_flow_set = [150]# the number of flows that we want to maximize EGR for them
@@ -76,6 +76,8 @@ class Config(NetworkConfig):
   cross_over_values =[0.5] # values we want to check crossover
   mutation_op_values =[0.1] # values we want to check mutation
   runs_of_genetic_algorithm = 10
+  multi_point_mutation_value = 3
+  multi_point_crossover_value = 3
   genetic_algorithm_initial_population = "EGR"
   genetic_algorithm_random_initial_population = 20# only this percent of the inial population is random
   ga_elit_pop_update_step = 10
@@ -84,12 +86,12 @@ class Config(NetworkConfig):
   ga_only_elit_to_generate_population = True
   dynamic_policy_flag = True
     
-  flow_path_values_results = "results/flow_path_values_results_wide_range_flow_weights_sec_test_rl_fifth_test.csv"
+  flow_path_values_results = "results/flow_path_values_results_250virtual_edges_second_test.csv"
     
   number_of_training_wks = 1
   workloads_to_test = 1
   
-  toplogy_wk_scheme_result_file = "results/evaluation_results_wide_range_flow_weights_250virtual_edges_second_test_rl_fifth_test.csv"
+  toplogy_wk_scheme_result_file = "results/evaluation_results_wide_range_flow_weights_250virtual_edges_dynamic_policy.csv"
     
 
 def get_config(FLAGS):
