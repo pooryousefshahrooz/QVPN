@@ -55,6 +55,16 @@ class Network:
         self.max_edge_fidelity = float(config.max_edge_fidelity)
         self.num_of_paths = int(config.num_of_paths)
         
+        
+        # this is for checking the results of what epoch should be used in genetic algorthm initialization
+        self.genetic_algorithm_initial_population_rl_epoch_number =config.genetic_algorithm_initial_population_rl_epoch_number
+        
+        
+        # we use this to get the results of the training with how many training work loads
+        self.number_of_training_wks = config.number_of_training_wks
+        
+        # this is the file that have the results fo rl training after different numbers of training epoch and we use for initialization the genetic algorithm        
+        self.toplogy_wk_rl_for_initialization_ga_result_file = config.toplogy_wk_rl_for_initialization_ga_result_file
         self.number_of_flow_set = config.number_of_flow_set
         
         self.each_pair_id  ={}
@@ -142,7 +152,7 @@ class Network:
         
     def evaluate_rl_for_path_selection(self,config):
         """this function implements the main work flow of the reinforcement learning algorithm"""
-        rl = RL()
+        rl = RL(config)
         solver = Solver()
         self.each_link_cost_metric ="Hop" 
         self.set_link_weight("Hop")
@@ -243,6 +253,21 @@ class Network:
         """we set the required EPR pairs to achieve each fidelity threshold"""
         self.purification.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx)
         
+    def save_rl_results_for_genetic_initialization(self,config,wk_idx,epoch_number,egr):
+        """we save the paths that the rl suggests for this work load and use ot later 
+        to initialize the genetic algorthm first population"""
+        with open(self.toplogy_wk_rl_for_initialization_ga_result_file, 'a') as newFile:                                
+                newFileWriter = csv.writer(newFile)
+                for k in self.each_wk_organizations[wk_idx]:
+                    for u in self.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+                        for p in self.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+                            newFileWriter.writerow([self.topology_name,wk_idx,self.num_of_paths,
+                            self.fidelity_threshold_range,self.q_value,
+                            self.each_link_cost_metric,self.number_of_flows,config.number_of_training_wks,
+                                egr,epoch_number,
+                                config.cut_off_for_path_searching,k,u,p,self.set_of_paths[p]])
+        
+        
     def save_results(self,wk_idx,config,genetic_alg_flag,rl_flag,shortest_path_flag,genetic_alg,runs_of_algorithm,egr,optimal_egr,run_number):
         if self.end_level_purification_flag:
             purification_scheme = "End"
@@ -255,9 +280,14 @@ class Network:
                 self.fidelity_threshold_range,purification_scheme,self.q_value,
                 "Genetic",self.number_of_flows,genetic_alg.elit_pop_size,
                                         genetic_alg.crossover_p,genetic_alg.mutation_p,runs_of_algorithm,
-                                        egr,genetic_alg.number_of_chromosomes,optimal_egr,run_number,
+                                        egr,genetic_alg.number_of_chromosomes,run_number,
                                         config.genetic_algorithm_random_initial_population,
-                                        config.ga_elit_pop_update_step,config.cut_off_for_path_searching,config.multi_point_mutation_value,config.multi_point_crossover_value])
+                                        config.ga_elit_pop_update_step,config.ga_crossover_mutation_update_step,
+                                        config.cut_off_for_path_searching,config.multi_point_mutation_value,
+                                        config.multi_point_crossover_value,
+                                        config.ga_crossover_mutation_multi_point_update_step,
+                                        config.genetic_algorithm_initial_population_rl_epoch_number,
+                                       config.number_of_training_wks,config.genetic_algorithm_initial_population])
         elif shortest_path_flag:
             with open(self.toplogy_wk_scheme_result, 'a') as newFile:                                
                 newFileWriter = csv.writer(newFile)
@@ -265,7 +295,11 @@ class Network:
                 self.fidelity_threshold_range,purification_scheme,self.q_value,
                 self.each_link_cost_metric,self.number_of_flows,0,0,
                                         0,1,
-                                        egr,0,optimal_egr])
+                                        egr,0,run_number,
+                                        0,
+                                        0,0,
+                                        config.cut_off_for_path_searching,0,
+                                        0,0])
         elif rl_flag:
             with open(self.toplogy_wk_scheme_result, 'a') as newFile:                                
                 newFileWriter = csv.writer(newFile)
@@ -273,10 +307,16 @@ class Network:
                 self.fidelity_threshold_range,purification_scheme,self.q_value,
                 "RL",self.number_of_flows,0,0,
                                         0,runs_of_algorithm,
-                                        egr,0,optimal_egr,config.initial_learning_rate,
+                                        egr,0,run_number,
+                                        0,
+                                        0,0,
+                                        config.cut_off_for_path_searching,0,
+                                        0,0,config.rl_batch_size,config.initial_learning_rate,
                                        config.learning_rate_decay_rate,
-                                       config.moving_average_decay,
-                                       config.entropy_weight,config.optimizer,config.scale,config.max_step])
+                                       config.moving_average_decay,config.learning_rate_decay_step_multiplier,
+                                        config.learning_rate_decay_step,
+                                       config.entropy_weight,config.optimizer,config.scale,
+                                        config.max_step,config.number_of_training_wks])
         
 #                                     
                 
@@ -403,28 +443,30 @@ class Network:
         self.path_counter_id = 0
         self.path_counter = 0
         print("self.each_wk_organizations",self.each_wk_organizations)
-        for wk,ks in self.each_wk_organizations.items():
-            for k in ks:
-                for u in self.each_wk_each_k_user_pairs[wk][k]:
-                    if u not in self.all_user_pairs_across_wks:
-                        
-                        self.all_user_pairs_across_wks.append(u)
         for wk,ks in self.each_testing_wk_organizations.items():
             for k in ks:
                 try:
-                    
                     for u in self.each_testing_wk_each_k_user_pairs[wk][k]:
                         if u not in self.all_user_pairs_across_wks:
                             self.all_user_pairs_across_wks.append(u)
                 except:
                     pass
+                
+        for wk,ks in self.each_wk_organizations.items():
+            for k in ks:
+                for u in self.each_wk_each_k_user_pairs[wk][k]:
+                    if u not in self.all_user_pairs_across_wks:
+                        #if self.running_path_selection_scheme=="RL":
+                        self.all_user_pairs_across_wks.append(u)
+
         for link_cost_metric in self.link_cost_metrics:
             for user_pair in self.all_user_pairs_across_wks:
                 user_pair_id = self.each_pair_id[user_pair]
                 self.each_pair_paths[user_pair_id]=[]
         for user_pair in self.all_user_pairs_across_wks:
             having_atleast_one_path_flag = False
-            for link_cost_metric in ["EGR","Hop","EGRSquare"]:
+            for link_cost_metric in ["Hop","EGR","EGRSquare"]:
+#             for link_cost_metric in ["Hop"]:#just for now to fix the isuue with iniializing the genetic algorthm
                 self.each_link_cost_metric =link_cost_metric 
                 self.set_link_weight(link_cost_metric)
                 user_pair_id = self.each_pair_id[user_pair]
@@ -437,6 +479,7 @@ class Network:
                     for node_indx in range(len(path)-1):                
                         path_edges.append((path[node_indx],path[node_indx+1]))
                         node_indx+=1
+                    
                     if path_edges not in set_of_all_paths:
                         path_fidelity  = self.purification.get_fidelity(path_edges,self.set_of_virtual_links)
                         if path_fidelity>0.50:
@@ -454,6 +497,11 @@ class Network:
                                 self.each_pair_paths[user_pair_id] = [self.path_counter_id]
                             self.path_counter_id+=1  
                             self.path_counter+=1
+                    
+                        
+                #if link_cost_metric=="Hop":
+                    #print("scheme %s flow %s have these path ids %s "%(link_cost_metric,user_pair_id,selected_path_for_this_scheme))
+                    #time.sleep(1)
                 try:
                     self.each_scheme_each_user_pair_paths[link_cost_metric][user_pair_id]=selected_path_for_this_scheme
                 except:

@@ -38,10 +38,12 @@ class Solver:
 #         time.sleep(15)
 #         for k in network.each_wk_organizations[wk_idx]:
 #                 for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
-#                     if u <3:
-#                         print("for flow %s we have %s paths "%(u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
-#                         path_ids = network.each_user_pair_all_paths[u]
-#                         print("selected paths:     ",network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+#                     if u <40:
+# #                         print("for flow %s we have %s paths "%(u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
+#                         #path_ids = network.each_user_pair_all_paths[u]
+# #                         print("selected paths:     ",network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+#                         for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                             print("flow %s path legnth %s"%(u,len(network.set_of_paths[p])))
 #                         print("these are all paths ",len(path_ids),path_ids)
 #                         print("flow F %s weight %s "%(network.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][u],network.each_wk_k_u_weight[wk_idx][k][u]))
 #                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:

@@ -161,15 +161,18 @@ class CFRRL_Game():
         network.each_wk_each_k_each_user_pair_id_paths={}
         network.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
         network.each_wk_each_k_each_user_pair_id_paths[wk_idx][0]={}
-        network.each_wk_each_k_user_pair_ids = {}
-        network.each_wk_k_u_weight = {}
-        network.each_wk_k_u_pair_weight = {}
+#         network.each_wk_each_k_user_pair_ids = {}
+#         network.each_wk_k_u_weight = {}
+#         network.each_wk_k_u_pair_weight = {}
         path_indx = 0
         if testing_flag:
 #             print("these are k in network.each_testing_wk_organizations[wk_idx]",network.each_testing_wk_organizations[wk_idx])
+            network.each_wk_each_k_user_pair_ids = {}
             for k in network.each_testing_wk_organizations[wk_idx]:
 #                 print("for these flows ",network.each_testing_wk_each_k_user_pair_ids[wk_idx][k])
+                #print("testing for k ",k)
                 for user_pair_id in network.each_testing_wk_each_k_user_pair_ids[wk_idx][k]:
+                    #print("testing user pair id %s from %s "%(user_pair_id,len(network.each_testing_wk_each_k_user_pair_ids[wk_idx][k])))
                     path_counter_for_this_flow = 0
                     try:
                         network.each_wk_each_k_user_pair_ids[wk_idx][k].append(user_pair_id)
@@ -193,13 +196,26 @@ class CFRRL_Game():
 #                     print("network.each_testing_user_organization",network.each_testing_user_organization)
                     k = network.each_testing_user_organization[user_pair_id]
                     for path_id in paths:
+                        #print("testing for path id %s from %s"%(path_id,len(paths)))
                         if path_id in action and path_counter_for_this_flow <network.num_of_paths:
-                            path_counter_for_this_flow+=1
-                            not_even_one_path = True
                             try:
-                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                                if path_id not in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]:
+                                    path_counter_for_this_flow+=1
+                                    not_even_one_path = True
+                                    try:
+                                        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                                    except:
+                                        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+                                else:
+                                    pass
                             except:
-                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+                                path_counter_for_this_flow+=1
+                                not_even_one_path = True
+                                try:
+                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                                except:
+                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+
                     if not not_even_one_path:
                         network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = []
                     try:
@@ -225,22 +241,42 @@ class CFRRL_Game():
                     
         else:
             for k in network.each_wk_organizations[wk_idx]:
+                #print("training for k ",k)
+                #print("network.each_wk_each_k_user_pair_ids",network.each_wk_each_k_user_pair_ids)
                 for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                    #print("training user pair id %s from %s "%(user_pair_id,len(network.each_wk_each_k_user_pair_ids[wk_idx][k])))
                     paths = network.each_user_pair_all_paths[user_pair_id]
                     not_even_one_path = False
                     path_counter_for_this_flow = 0
                     for path_id in paths:
+                        #print("training for path id %s from %s"%(path_id,len(paths)))
                         if path_id in action and path_counter_for_this_flow <network.num_of_paths:
-                            path_counter_for_this_flow+=1
-                            not_even_one_path = True
-                            k = network.each_user_organization[user_pair_id]
                             try:
-                                network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                                if path_id not in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]:
+                                    path_counter_for_this_flow+=1
+                                    not_even_one_path = True
+                                    k = network.each_user_organization[user_pair_id]
+                                    try:
+                                        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
+                                    except:
+                                        try:
+                                            network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+                                        except:
+                                            network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+                                else:
+                                    pass
                             except:
+                                path_counter_for_this_flow+=1
+                                not_even_one_path = True
+                                k = network.each_user_organization[user_pair_id]
                                 try:
-                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id].append(path_id)
                                 except:
-                                    network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+                                    try:
+                                        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = [path_id]
+                                    except:
+                                        network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[path_id]
+
                     if not not_even_one_path:
                         try:
                             network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id] = []
@@ -270,13 +306,18 @@ class CFRRL_Game():
                 if tuple(chosen_paths) in self.each_wk_action_reward[wk_idx]:
                     rl_egr_value = self.each_wk_action_reward[wk_idx][tuple(chosen_paths)]
                 else:
-                    rl_egr_value = self.compute_egr(actions,wk_idx,network,solver)
+                    #print("1 goint to set paths from actions ")
+                    self.set_paths_from_action(chosen_paths,wk_idx,network,False)
+                    rl_egr_value  = solver.CPLEX_maximizing_EGR(wk_idx,network,2,2)
                     self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
             else:
-                rl_egr_value = self.compute_egr(actions,wk_idx,network,solver)
+                #print("2 goint to set paths from actions ")
+                self.set_paths_from_action(chosen_paths,wk_idx,network,False)
+                rl_egr_value  = solver.CPLEX_maximizing_EGR(wk_idx,network,2,2)
                 self.each_wk_action_reward[wk_idx] = {}
                 self.each_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
         except:
+            #print("3 goint to set paths from actions ")
             self.set_paths_from_action(chosen_paths,wk_idx,network,False)
             rl_egr_value  = solver.CPLEX_maximizing_EGR(wk_idx,network,2,2)
             self.each_wk_action_reward[wk_idx] = {}

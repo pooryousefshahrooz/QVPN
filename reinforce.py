@@ -55,9 +55,9 @@ GRADIENTS_CHECK=False
 
 
 class RL:
-    def __init__(self,start = 0):
+    def __init__(self,config,start = 0):
         self.num_agents = 1
-        self.num_iter =20
+        self.num_iter =config.rl_batch_size
         self.epoch_numbers = 1
         self.baseline = "avg"
         self.ckpt = ''
@@ -74,22 +74,37 @@ class RL:
         except:
             f = open(self.training_testing_switching_file, 'r')
         for line in f:
-            line = line.strip()
-            link = line.split('\t')
-            #print(line,link)
-            step,testing_flag = link
-            if testing_flag=="True":
-                return step,True
-            else:
-                return step,False
+            if line:
+                line = line.strip()
+                link = line.split('\t')
+                #print(line,link)
+                step,testing_flag = link
+                if testing_flag=="True":
+                    return step,True
+                else:
+                    return step,False
     def set_testing_flag(self,last_step,training_flag):
+        print("we are going to set the flag of testing to %s with step %s "%(training_flag,last_step))
         self.lock.acquire()
         with open(self.training_testing_switching_file, "w") as file_object:
             if training_flag:
-                file_object.write(str(last_step)+"\t"+str("True"))
+                file_object.write(str(last_step)+"\t"+str("True")+"\n")
             else:
-                file_object.write(str(last_step)+"\t"+str("False"))
+                file_object.write(str(last_step)+"\t"+str("False")+"\n")
         self.lock.release()
+        
+        try:
+            f = open(self.training_testing_switching_file+".txt", 'r')
+        except:
+            f = open(self.training_testing_switching_file, 'r')
+        for line in f:
+            if line:
+                line = line.strip()
+                link = line.split('\t')
+                #print(line,link)
+                step,testing_flag = link
+                print("this is what we read from file ",line)
+        print("we set the flag of testing to %s with step %s "%(training_flag,last_step))
     def central_agent(self,config, topology_name,game, model_weights_queues, experience_queues):
         model = Model(config,topology_name, game.state_dims, game.action_dim, game.max_moves, master=True)
         model.save_hyperparams(config)
@@ -142,6 +157,12 @@ class RL:
                             last_step,testing_flag = self.get_testing_flag()
                         except:
                             pass
+                        if not testing_flag:
+                            print("training and the flag is %s which means we can save"%(testing_flag))
+                        else:
+                            print("training and the flag is %s which means we have to wait!"%(testing_flag))
+                            time.sleep(2)
+                        
                         last_step= int(last_step)
                     model.save_ckpt(_print=True)
 
@@ -157,7 +178,7 @@ class RL:
                         'avg reward': avg_reward,
                         'avg entropy': avg_entropy
                         }, step)
-                    print('lr:%f, value loss:%f, avg reward:%f, avg entropy:%f'%(actor_learning_rate, avg_value_loss, avg_reward, avg_entropy))
+                    print('lr:%f, value loss:%f, avg reward:%f, avg entropy:%f step %s'%(actor_learning_rate, avg_value_loss, avg_reward, avg_entropy,step))
                     self.set_testing_flag(step,True)
                    
                     
@@ -202,6 +223,12 @@ class RL:
                         except:
                             pass
                         
+                        if not testing_flag:
+                            print("training and the flag is %s which means we can save"%(testing_flag))
+                        else:
+                            print("training and the flag is %s which means we have to wait!"%(testing_flag))
+                            time.sleep(2)
+                        last_step= int(last_step)
                     model.save_ckpt(_print=True)
 
                     #log training information
@@ -215,7 +242,7 @@ class RL:
                         'avg advantage': avg_advantage,
                         'avg entropy': avg_entropy
                         }, step)
-                    print('lr:%f, avg reward:%f, avg advantage:%f, avg entropy:%f'%(learning_rate, avg_reward, avg_advantage, avg_entropy))
+                    print('lr:%f, avg reward:%f, avg advantage:%f, avg entropy:%f step %s'%(learning_rate, avg_reward, avg_advantage, avg_entropy,step))
                     self.set_testing_flag(step,True)
                 
                     
@@ -239,7 +266,7 @@ class RL:
         run_iterations = self.num_iter
         while True:
             wk_idx = wk_subset[idx]
-            #print("training for workload %s "%(wk_idx))
+            print("training work load %s from %s "%(wk_idx,len(wk_subset)))
             network.get_each_user_all_paths(wk_idx,False)
             #state
             state = game.get_state(wk_idx,network,False)
@@ -261,6 +288,8 @@ class RL:
 
             #reward
             reward = game.reward(wk_idx,network,actions,solver)
+            
+            #print("training for workload %s got reward %s "%(wk_idx,reward))
             #print("reward is ",reward)
             r_batch.append(reward)
 
@@ -354,21 +383,34 @@ class RL:
             policy = model.policy_predict(np.expand_dims(state, 0)).numpy()[0]
         actions = policy.argsort()[-game.max_moves:]
         egr = game.evaluate(wk_idx,network,solver,"RL",actions) 
-        return egr
+        return actions,egr
     def test(self,config,network):
         self.epoch_numbers = config.max_step
         last_step = 1
+        new_last_step = 1
         testing_flag = True
         solver = Solver()
+        print("****************** testing ********************************")
         while(last_step<self.epoch_numbers):
-#             print("self.get_testing_flag(last_step) ******************** ",self.get_testing_flag(last_step))
-            try:
-                last_step,testing_flag = self.get_testing_flag()
-            except:
-                pass
-#             print("******* this is our step and flag %s %s **********"%(last_step,testing_flag))
-            last_step = int(last_step)
-            if testing_flag:
+            #print("going to call self.get_testing_flag(last_step) ******************** ")
+            while(not testing_flag):
+                try:
+                    new_last_step,testing_flag = self.get_testing_flag()
+                    print(" testing we read the file and it was flag %s step %s"%(testing_flag,new_last_step))
+                except:
+                    pass
+    #             print("******* this is our step and flag %s %s **********"%(last_step,testing_flag))
+                if not testing_flag:
+                    print("testing and the flag is %s which means we have to wait!"%(testing_flag))
+                    time.sleep(2)
+                else:
+                    print("testing and the flag is %s which means we can test :)"%(testing_flag))
+                    
+                new_last_step = int(new_last_step)
+            
+            if new_last_step>last_step:
+                
+                last_step = new_last_step
                 self.ckpt = ''
                 #Using cpu for testing
                 tf.config.experimental.set_visible_devices([], 'GPU')
@@ -392,15 +434,32 @@ class RL:
                     learning_rate = model.lr_schedule(model.optimizer.iterations.numpy()).numpy()
                 print('\nstep %d, learning rate: %f\n'% (current_chckpoint, learning_rate))
                 for wk_idx in range(len(game.testing_wk_indexes)):
-                    #print("testing for workload %s "%(wk_idx))
+                    
                     #print(" *** going to get the paths of all users in workload %s out of %s ***"%(wk_idx,len(game.testing_wk_indexes)))
                     network.get_each_user_all_paths(wk_idx,True)
-                    rl_egr= self.sim(config,model,network,solver, game,wk_idx)
-                    network.save_results(wk_idx,config,False,True,False,False,last_step,rl_egr,0,0)
-                    print(" ****epoch #",last_step,"# paths",network.num_of_paths,"wk_idx",wk_idx,
-                                "RL",rl_egr)
+                    actions,rl_egr= self.sim(config,model,network,solver, game,wk_idx)
+                    #print("testing for workload %s got egr %s "%(wk_idx,rl_egr))
+                    network.save_results(wk_idx,config,False,True,False,False,new_last_step,rl_egr,0,0)
+                    if config.save_rl_results_for_initialization and new_last_step in config.set_of_epoch_for_saving_rl_results_for_ga:
+                        print("we have wk %s epoch number %s and target to save path information are %s"%(wk_idx,new_last_step,config.set_of_epoch_for_saving_rl_results_for_ga))
+                        print("we are going to save")
+                        network.save_rl_results_for_genetic_initialization(config,wk_idx,new_last_step,rl_egr)
+                    else:
+                        print("no save! epoch number %s worklosd %s from %s "%(new_last_step,wk_idx,len(game.testing_wk_indexes)))
                     
-                self.set_testing_flag(last_step,False)
+                    if new_last_step%100==0:
+                        print(" ****epoch #",new_last_step,"# paths",network.num_of_paths,"wk_idx",wk_idx,
+                                    "RL",rl_egr)
+                self.set_testing_flag(new_last_step,False)
+                    
+            else:
+                print("the flag for testing is set to true %s but we already have trained for thsat epoch number %s "%(testing_flag,new_last_step))
+                time.sleep(3)
+                new_last_step,testing_flag = self.get_testing_flag()
+                new_last_step = int(new_last_step)
+                print(" testing 2: we read the file and it was flag %s step %s"%(testing_flag,new_last_step))
+
+                
 
 
 # In[ ]:

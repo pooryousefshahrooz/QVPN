@@ -100,6 +100,7 @@ class Purification:
     
     def set_required_EPR_pairs_for_each_path_each_fidelity_threshold(self,wk_idx):
         if self.function_g_computed:
+            #print("not computing the function g!")
             pass
         else:
             self.function_g_computed = True
@@ -209,7 +210,7 @@ class Purification:
 
         else:
             print("Error")
-            return 0.6
+            return 1.0
         N = len(path_edges)+1
         p1 = 1
         p2 = 1
