@@ -83,6 +83,7 @@ class RL:
                     return step,True
                 else:
                     return step,False
+        f.close()
     def set_testing_flag(self,last_step,training_flag):
         print("we are going to set the flag of testing to %s with step %s "%(training_flag,last_step))
         self.lock.acquire()
@@ -91,6 +92,7 @@ class RL:
                 file_object.write(str(last_step)+"\t"+str("True")+"\n")
             else:
                 file_object.write(str(last_step)+"\t"+str("False")+"\n")
+        file_object.close()
         self.lock.release()
         
         try:
@@ -149,7 +151,8 @@ class RL:
                     for g in range(len(critic_gradients)):
                         assert np.any(np.isnan(critic_gradients[g])) == False, ('critic_gradients', s_batch, a_batch, r_batch)
 
-                if step % config.save_step == config.save_step - 1:
+                if step % config.save_step == config.save_step -1:
+                    print("going to store checkpoint in training step ",step)
                     testing_flag = False
                     last_step = step
                     while(testing_flag):
@@ -214,7 +217,8 @@ class RL:
                     for g in range(len(gradients)):
                         assert np.any(np.isnan(gradients[g])) == False, (s_batch, a_batch, r_batch)
 
-                if step % config.save_step == config.save_step - 1:
+                if step % config.save_step == config.save_step -1:
+                    print("2 going to store checkpoint in training step ",step)
                     testing_flag = False
                     last_step = step
                     while(testing_flag):
@@ -264,6 +268,7 @@ class RL:
         num_wks = len(wk_subset)
         random_state.shuffle(wk_subset)
         run_iterations = self.num_iter
+        print("we are in agent ")
         while True:
             wk_idx = wk_subset[idx]
             print("training work load %s from %s "%(wk_idx,len(wk_subset)))
@@ -289,7 +294,7 @@ class RL:
             #reward
             reward = game.reward(wk_idx,network,actions,solver)
             
-            #print("training for workload %s got reward %s "%(wk_idx,reward))
+            print("training for workload %s got reward %s "%(wk_idx,reward))
             #print("reward is ",reward)
             r_batch.append(reward)
 
@@ -433,19 +438,21 @@ class RL:
                 elif config.method == 'pure_policy':
                     learning_rate = model.lr_schedule(model.optimizer.iterations.numpy()).numpy()
                 print('\nstep %d, learning rate: %f\n'% (current_chckpoint, learning_rate))
+                time_in_seconds = time.time()
                 for wk_idx in range(len(game.testing_wk_indexes)):
                     
-                    #print(" *** going to get the paths of all users in workload %s out of %s ***"%(wk_idx,len(game.testing_wk_indexes)))
-                    network.get_each_user_all_paths(wk_idx,True)
-                    actions,rl_egr= self.sim(config,model,network,solver, game,wk_idx)
-                    #print("testing for workload %s got egr %s "%(wk_idx,rl_egr))
-                    network.save_results(wk_idx,config,False,True,False,False,new_last_step,rl_egr,0,0)
+                    print(" *** going to get the paths of all users in workload %s out of %s ***"%(wk_idx,len(game.testing_wk_indexes)))
+                    network.get_each_user_all_paths(wk_idx,False)
+                    actions,rl_egr= self.sim(config,model,network,solver,game,wk_idx)
+                    print("testing for workload %s got egr %s "%(wk_idx,rl_egr))
+                    network.save_results(wk_idx,config,False,True,False,False,new_last_step,rl_egr,0,0,time_in_seconds)
+                    print("we saved the results in file!")
                     if config.save_rl_results_for_initialization and new_last_step in config.set_of_epoch_for_saving_rl_results_for_ga:
                         print("we have wk %s epoch number %s and target to save path information are %s"%(wk_idx,new_last_step,config.set_of_epoch_for_saving_rl_results_for_ga))
                         print("we are going to save")
                         network.save_rl_results_for_genetic_initialization(config,wk_idx,new_last_step,rl_egr)
                     else:
-                        print("no save! epoch number %s worklosd %s from %s "%(new_last_step,wk_idx,len(game.testing_wk_indexes)))
+                        print("no save! to initialize genetic epoch number %s worklosd %s from %s "%(new_last_step,wk_idx,len(game.testing_wk_indexes)))
                     
                     if new_last_step%100==0:
                         print(" ****epoch #",new_last_step,"# paths",network.num_of_paths,"wk_idx",wk_idx,
@@ -453,7 +460,7 @@ class RL:
                 self.set_testing_flag(new_last_step,False)
                     
             else:
-                print("the flag for testing is set to true %s but we already have trained for thsat epoch number %s "%(testing_flag,new_last_step))
+                print("the flag for testing is set to true %s but we already have trained for this epoch number %s "%(testing_flag,new_last_step))
                 time.sleep(3)
                 new_last_step,testing_flag = self.get_testing_flag()
                 new_last_step = int(new_last_step)

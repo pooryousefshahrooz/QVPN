@@ -17,13 +17,253 @@ from absl import flags
 FLAGS = flags.FLAGS
 
 
-# In[1]:
+# In[ ]:
 
 
 class Solver:
     def __init__(self):
         pass
+    
     def CPLEX_maximizing_EGR(self,wk_idx,network,run_step_number,chromosome_id):
+        
+        zero_path_flag = False
+        for k in network.each_wk_organizations[wk_idx]:
+            for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+#                 print("for wk %s k %s u %s we have %s paths "%(wk_idx,k,u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
+                if len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])==0:# there is no path to deliver any
+                    zero_path_flag = True
+        if zero_path_flag and network.optimization_problem_with_minimum_rate:
+#             print("zero path constraint")
+            return 0
+#         else:
+#             print("not zero path constraint")
+        countr = 0
+
+        
+        
+#         print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
+        opt_model = cpx.Model(name="inter_organization_EGR")
+        x_vars  = {(k,p): opt_model.continuous_var(lb=0, ub= network.max_edge_capacity,
+                                  name="w_{0}_{1}".format(k,p))  for k in network.each_wk_organizations[wk_idx]
+                   for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]}
+
+       
+        #Edge constraint
+        for edge in network.set_E:
+            #if network.end_level_purification_flag:
+            opt_model.add_constraint(
+                opt_model.sum(x_vars[k,p] 
+                * network.purification.get_required_purification_EPR_pairs(wk_idx,k,u,edge,p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))
+                for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
+                for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
+                if network.check_path_include_edge(edge,p))
+                 <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+                
+
+        # constraint for each flow 
+        if network.optimization_problem_with_minimum_rate:
+            for k in network.each_wk_organizations[wk_idx]:
+                for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                    flow_weight = network.each_wk_k_u_weight[wk_idx][k][u]
+                    #for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+    #                 print("for org %s u %s we have %s paths user pair %s "%(k,u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.each_id_pair[u]))
+                    opt_model.add_constraint(
+                    opt_model.sum(x_vars[k,p] for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+                        >= network.min_flow_rate
+                     , ctname="min_flow_rate_{0}_{1}".format(k,u))
+
+        objective = opt_model.sum(x_vars[k,p]*network.each_wk_k_weight[wk_idx][k] *network.each_wk_k_u_weight[wk_idx][k][u]*network.q_value**(network.get_path_length(p)-1)
+                              for k in network.each_wk_organizations[wk_idx]
+                              for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] 
+                              for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
+                              )
+
+
+        # for maximization
+        opt_model.maximize(objective)
+
+    #     opt_model.solve()
+        #opt_model.print_information()
+        #try:
+        opt_model.solve()
+
+
+#         print('docplex.mp.solution',opt_model.solution)
+        objective_value = 0
+        try:
+            if opt_model.solution:
+                objective_value =opt_model.solution.get_objective_value()
+        except ValueError:
+            print(ValueError)
+
+
+#         opt_model.clear()
+#         time.sleep(20)
+        
+        if objective_value>0:
+            if run_step_number  in [0,200,500,900,1000,1500,2000] and network.get_flow_rates_info:
+                for k in network.each_wk_organizations[wk_idx]:
+                    for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+                        w=network.each_wk_k_u_weight[wk_idx][k][u] 
+                        for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+                            F_th = network.purification.each_path_flow_target_fidelity[p]
+                            path_edges = network.set_of_paths[p]
+                            p_lenght = len(path_edges)
+                            new_target = round((3*(4/3*F_th-1/3)**(1/p_lenght)+1)/4,3)
+                            edge_g_value = network.purification.each_path_edge_level_g[p]
+                            end_g_value = network.purification.each_path_end_level_g[p]
+                            with open(network.path_variables_file_path, 'a') as newFile:                                
+                                newFileWriter = csv.writer(newFile)
+                                newFileWriter.writerow([network.running_path_selection_scheme,
+                                                            run_step_number,chromosome_id,k,u,p,
+                                                            network.purification.two_qubit_gate_fidelity,
+                                                            network.purification.measurement_fidelity,
+                                                            network.alpha_value,x_vars[k,p].solution_value,
+                                                            wk_idx,objective_value,F_th,new_target,
+                                                            edge_g_value,end_g_value])
+    
+        return objective_value
+    
+    
+    def CPLEX_maximizing_EGR_minimum_rate_constraint_gradient_based_version(self,wk_idx,network,run_step_number,chromosome_id,each_wk_k_u_path_ids):
+        
+        
+        for k in network.each_wk_organizations[wk_idx]:
+            for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+#                 print("for wk %s k %s u %s we have these many users %s "%(wk_idx,k,u,(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k].keys())))
+                if len(each_wk_k_u_path_ids[wk_idx][k][u])==0:
+                    return 0
+#                 for p in each_wk_k_u_path_ids[wk_idx][k][u]:
+#                     F_threshold = network.purification.each_path_flow_target_fidelity[p]
+#                     path_edges = network.set_of_paths[p]
+#                     p_lenght = len(path_edges)
+#                     new_target = round((3*(4/3*F_threshold-1/3)**(1/p_lenght)+1)/4,3)
+#                     print("for wk %s k %s u %s p %s ( from %s) to reach Fth %s (up to %s) edge-level_g=%s end-level_g=%s "%(wk_idx,k,u,p,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),F_threshold,new_target,network.purification.each_path_edge_level_g[p],network.purification.each_path_end_level_g[p]))
+        
+        
+        
+        
+#         print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
+        opt_model = cpx.Model(name="inter_organization_EGR")
+        x_vars  = {(k,p): opt_model.continuous_var(lb=0, ub= network.max_edge_capacity,
+                                  name="w_{0}_{1}".format(k,p))  for k in network.each_wk_organizations[wk_idx]
+                   for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] for p in each_wk_k_u_path_ids[wk_idx][k][u]}
+
+#         for k in network.each_wk_organizations[wk_idx]:
+#             for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+#                 for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                     flag = False
+#                     for edge in network.set_E:
+#                         if network.check_path_include_edge(edge,p):
+#                             if not flag:
+#                                 print("organization %s user %s #paths %s  p %s |p|=%s F = %s Fth=%s  g(.)=%s"%(k,
+#                                                                                 u,network.num_of_paths,p,
+#                                                                                 network.each_path_legth[p],
+#                                                                                 network.purification.each_path_basic_fidelity[p],
+#                                                                                 network.purification.get_each_wk_k_u_threshold(wk_idx,k,u),
+#                     network.purification.get_required_purification_EPR_pairs(edge,p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))))
+#                                 flag = True
+                          
+
+    #     time.sleep(9)
+       
+        #Edge constraint
+        for edge in network.set_E:
+            #if network.end_level_purification_flag:
+            opt_model.add_constraint(
+                opt_model.sum(x_vars[k,p] 
+                * network.purification.get_required_purification_EPR_pairs(wk_idx,k,u,edge,p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))
+                for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
+                for p in each_wk_k_u_path_ids[wk_idx][k][u]
+                if network.check_path_include_edge(edge,p))
+                 <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+                
+#             else:
+#                 opt_model.add_constraint(
+#                     opt_model.sum(x_vars[k,p]*network.each_wk_k_u_weight[wk_idx][k][u] *
+#                     network.get_required_edge_level_purification_EPR_pairs(edge,p,network.purification.each_wk_k_u_fidelity_threshold[k][u],wk_idx)
+#                     for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
+#                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
+#                     if network.check_path_include_edge(edge,p))
+#                      <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+#                 print("from edge %s to F %s divide capacity by this %s"%(edge,network.each_wk_k_fidelity_threshold[0],
+#                           network.get_required_edge_level_purification_EPR_pairs
+#                           (edge,0,network.each_wk_k_fidelity_threshold[0],0)))
+
+        # constraint for each flow 
+
+        for k in network.each_wk_organizations[wk_idx]:
+            for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                flow_weight = network.each_wk_k_u_weight[wk_idx][k][u]
+                #for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                 print("for org %s u %s we have %s paths user pair %s "%(k,u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.each_id_pair[u]))
+                opt_model.add_constraint(
+                opt_model.sum(x_vars[k,p] for p in each_wk_k_u_path_ids[wk_idx][k][u])
+                    >= network.min_flow_rate
+                 , ctname="min_flow_rate_{0}_{1}".format(k,u))
+
+        objective = opt_model.sum(x_vars[k,p]*network.each_wk_k_weight[wk_idx][k] *network.each_wk_k_u_weight[wk_idx][k][u]*network.q_value**(network.get_path_length(p)-1)
+                              for k in network.each_wk_organizations[wk_idx]
+                              for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] 
+                              for p in each_wk_k_u_path_ids[wk_idx][k][u]
+                              )
+
+
+        # for maximization
+        opt_model.maximize(objective)
+
+    #     opt_model.solve()
+        #opt_model.print_information()
+        #try:
+        opt_model.solve()
+
+
+#         print('docplex.mp.solution',opt_model.solution)
+        objective_value = 0
+        try:
+            if opt_model.solution:
+                objective_value =opt_model.solution.get_objective_value()
+        except ValueError:
+            print(ValueError)
+
+
+#         opt_model.clear()
+#         time.sleep(20)
+        
+        if objective_value>0:
+            if run_step_number  in [0,200,500,900,1000,1500,2000] and network.get_flow_rates_info:
+                for k in network.each_wk_organizations[wk_idx]:
+                    for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+                        w=network.each_wk_k_u_weight[wk_idx][k][u] 
+                        for p in each_wk_k_u_path_ids[wk_idx][k][u]:
+                            F_th = network.purification.each_path_flow_target_fidelity[p]
+                            path_edges = network.set_of_paths[p]
+                            p_lenght = len(path_edges)
+                            new_target = round((3*(4/3*F_th-1/3)**(1/p_lenght)+1)/4,3)
+                            edge_g_value = network.purification.each_path_edge_level_g[p]
+                            end_g_value = network.purification.each_path_end_level_g[p]
+                            with open(network.path_variables_file_path, 'a') as newFile:                                
+                                newFileWriter = csv.writer(newFile)
+                                newFileWriter.writerow([network.running_path_selection_scheme,
+                                                            run_step_number,chromosome_id,k,u,p,
+                                                            network.purification.two_qubit_gate_fidelity,
+                                                            network.purification.measurement_fidelity,
+                                                            network.alpha_value,x_vars[k,p].solution_value,
+                                                            wk_idx,objective_value,F_th,new_target,
+                                                            edge_g_value,end_g_value])
+    
+        return objective_value
+    
+    
+    
+    def CPLEX_maximizing_EGR_old_version(self,wk_idx,network,run_step_number,chromosome_id):
+#         for path_id,path_edges in network.set_of_paths.items():
+#             new_edges = []
+#             for edge in path_edges:
+#                 if edge not in network.set_of_virtual_links:
+#                     new_edges.append(edge)
+#             print("path id %s length %s basic Fidelity %s "%(path_id,len(new_edges),network.purification.each_path_basic_fidelity[path_id]))
+            #time.sleep(2)
         #print("scheme ",network.)
 #         print("network.each_wk_k_weight",wk_idx,network.each_wk_k_weight)
 #         countr = 0
@@ -36,19 +276,24 @@ class Solver:
 #                 capacities.append(network.each_edge_capacity[edge])
 #             print("path id %s length %s %s with %s virtual F %s capac. %s "%(path_id,len(path_edges),len(path_edges)-virtual_link_counter,virtual_link_counter,network.purification.each_path_basic_fidelity[path_id],min(capacities)))
 #         time.sleep(15)
+        countr = 0
 #         for k in network.each_wk_organizations[wk_idx]:
 #                 for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
-#                     if u <40:
-# #                         print("for flow %s we have %s paths "%(u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
-#                         #path_ids = network.each_user_pair_all_paths[u]
-# #                         print("selected paths:     ",network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
-#                         for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
-#                             print("flow %s path legnth %s"%(u,len(network.set_of_paths[p])))
-#                         print("these are all paths ",len(path_ids),path_ids)
-#                         print("flow F %s weight %s "%(network.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][u],network.each_wk_k_u_weight[wk_idx][k][u]))
+# #                     if u <40:
+# # #                         print("for flow %s we have %s paths "%(u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
+# #                         #path_ids = network.each_user_pair_all_paths[u]
+# # #                         print("selected paths:     ",network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+# #                         for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+# #                             print("flow %s path legnth %s"%(u,len(network.set_of_paths[p])))
+# #                         print("these are all paths ",len(path_ids),path_ids)
+# #                         print("flow F %s weight %s "%(network.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][u],network.each_wk_k_u_weight[wk_idx][k][u]))
 #                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
-#                         if countr<6:
-#                             print("for flow %s we use path %s"%(u,network.set_of_paths[p]))
+#                         if countr<150:
+#                             Fth = network.purification.get_each_wk_k_u_threshold(wk_idx,k,u)
+#                             path_f = network.purification.each_path_basic_fidelity[p]
+#                             for edge in network.set_of_paths[p]:
+#                                 g_value = network.purification.get_required_purification_EPR_pairs(edge,p,Fth)
+#                             print("for flow %s we use path %s with F %s  to reach Fth %s we need g(.) %s"%(u,p,path_f,Fth,g_value))
 #                     countr+=1
         list_of_flows = network.each_wk_k_u_weight[wk_idx][0].keys()
         list_of_flows = list(list_of_flows)
@@ -58,8 +303,8 @@ class Solver:
         list_of_flows2 = list(list_of_flows2)
         list_of_flows2.sort()
         #print("# flows in path data structure",len(list_of_flows2))
-        
-        
+
+
         list_of_flows3 = network.each_wk_each_k_user_pair_ids[wk_idx][0]
         list_of_flows3 = list(list_of_flows3)
         list_of_flows3.sort()
@@ -67,8 +312,8 @@ class Solver:
 #         if len(list_of_flows2)!=len(list_of_flows3) or list_of_flows3!=list_of_flows2:
 #             print("from each k flows" ,list_of_flows3)
 #             print("from each k flow paths ", list_of_flows2)
-        
-        
+
+
         try:
             if len(list_of_flows2)!=len(list_of_flows3) or list_of_flows3!=list_of_flows2:
                 print("ERRRRRRRRRRRRRRRRROOOOOOOOORRRR!!!!!!!!!!")
@@ -95,47 +340,47 @@ class Solver:
             print("********************************************************")
             import pdb
             pdb.set_trace()
-            
+
         #print("done!")
-        
+
 #         print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
         opt_model = cpx.Model(name="inter_organization_EGR")
         x_vars  = {(k,p): opt_model.continuous_var(lb=0, ub= network.max_edge_capacity,
                                   name="w_{0}_{1}".format(k,p))  for k in network.each_wk_organizations[wk_idx]
                    for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]}
 
-        
+
     #     for k in network.K:
     #         for u in network.each_k_user_pairs[k]:
     #             for p in network.each_k_u_paths[k][u]:
     #                 print("organization %s user %s #paths %s cost %s p %s path %s"%(k,u,network.num_of_paths,network.each_link_cost_metric,p,network.set_of_paths[p]))
 
     #     time.sleep(9)
-       
+
         #Edge constraint
         for edge in network.set_E:
-            if network.end_level_purification_flag:
-                opt_model.add_constraint(
-                    opt_model.sum(x_vars[k,p]*network.each_wk_k_u_weight[wk_idx][k][u] 
-                    * network.purification.get_required_purification_EPR_pairs(p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))
-                    for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
-                    for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
-                    if network.check_path_include_edge(edge,p))
-                     <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
-                
-            else:
-                opt_model.add_constraint(
-                    opt_model.sum(x_vars[k,p]*network.each_wk_k_u_weight[wk_idx][k][u] *
-                    network.get_required_edge_level_purification_EPR_pairs(edge,p,network.purification.each_wk_k_u_fidelity_threshold[k][u],wk_idx)
-                    for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
-                    for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
-                    if network.check_path_include_edge(edge,p))
-                     <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+            #if network.end_level_purification_flag:
+            opt_model.add_constraint(
+                opt_model.sum(x_vars[k,p] 
+                * network.purification.get_required_purification_EPR_pairs(edge,p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))
+                for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
+                for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
+                if network.check_path_include_edge(edge,p))
+                 <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+
+#             else:
+#                 opt_model.add_constraint(
+#                     opt_model.sum(x_vars[k,p]*network.each_wk_k_u_weight[wk_idx][k][u] *
+#                     network.get_required_edge_level_purification_EPR_pairs(edge,p,network.purification.each_wk_k_u_fidelity_threshold[k][u],wk_idx)
+#                     for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
+#                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
+#                     if network.check_path_include_edge(edge,p))
+#                      <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
 #                 print("from edge %s to F %s divide capacity by this %s"%(edge,network.each_wk_k_fidelity_threshold[0],
 #                           network.get_required_edge_level_purification_EPR_pairs
 #                           (edge,0,network.each_wk_k_fidelity_threshold[0],0)))
 
-        objective = opt_model.sum(x_vars[k,p]*network.each_wk_k_weight[wk_idx][k] * network.each_wk_k_u_weight[wk_idx][k][u]*network.q_value**(network.get_path_length(p)-1)
+        objective = opt_model.sum(x_vars[k,p]*network.each_wk_k_weight[wk_idx][k]*network.each_wk_k_u_weight[wk_idx][k][u] *network.q_value**(network.get_path_length(p)-1)
                               for k in network.each_wk_organizations[wk_idx]
                               for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] 
                               for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
@@ -152,7 +397,7 @@ class Solver:
 
 
 #         print('docplex.mp.solution',opt_model.solution)
-        objective_value = -1
+        objective_value = 0
         try:
             if opt_model.solution:
                 objective_value =opt_model.solution.get_objective_value()
@@ -163,14 +408,242 @@ class Solver:
 #         opt_model.clear()
 #         time.sleep(20)
 
-        if run_step_number  in [0,1000,2000,3000]:
+       
+        if run_step_number  in [0,50,100,500,900,1000] and network.get_flow_rates_info:
             # we store results
+            if objective_value>0:
+                purification_schemes_string = ""
+                for pur_scheme in network.purification.allowed_purification_schemes:
+                    if purification_schemes_string:
+                        purification_schemes_string = purification_schemes_string+","+pur_scheme
+                    else:
+                        purification_schemes_string = pur_scheme
+
+                for k in network.each_wk_organizations[wk_idx]:
+                    for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+                        w=network.each_wk_k_u_weight[wk_idx][k][u] 
+                        for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                             if x_vars[k,p].solution_value>1:
+#                                 edge_capacities = []
+#                                 for edge in network.set_of_paths[p]:
+#                                     if network.check_path_include_edge(edge,p):
+#                                         edge_capacity = network.each_edge_capacity[edge]
+#                                         Fth = network.purification.get_each_wk_k_u_threshold(wk_idx,k,u)
+#                                         path_f = network.purification.each_path_basic_fidelity[p]
+#                                         edge_capacities.append(edge_capacity)
+#                                         g_value = network.purification.get_required_purification_EPR_pairs(edge,p,Fth)
+#                                 print("sum %s solver %s for x_vars[%s,%s] we have %s  which *w*g(.) %s = %s < %s"%(round(sum_rates,2),round(objective_value,2),k,p,x_vars[k,p].solution_value,g_value,g_value*w*x_vars[k,p].solution_value,round(min(edge_capacities),)))
+                            with open(network.path_variables_file_path, 'a') as newFile:                                
+                                newFileWriter = csv.writer(newFile)
+                                newFileWriter.writerow([network.running_path_selection_scheme,
+                                                        run_step_number,chromosome_id,k,u,p,
+                                                        network.purification.two_qubit_gate_fidelity,
+                                                        network.purification.measurement_fidelity,
+                                                        network.alpha_value,x_vars[k,p].solution_value,
+                                                        wk_idx,objective_value,
+                                                        purification_schemes_string,network.number_of_flows])
+
+#         for edge in network.set_E:
+#             #if network.end_level_purification_flag:
+#             sum_value = 0
+#             for k in network.each_wk_organizations[wk_idx]:
+#                 for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+#                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                         if network.check_path_include_edge(edge,p):
+#                             sum_value = sum_value + x_vars[k,p].solution_value*network.each_wk_k_u_weight[wk_idx][k][u] * network.purification.get_required_purification_EPR_pairs(edge,p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))
+#             if sum_value>1:
+#                 print("this rate %s on edge %s is less than %s "%(sum_value,edge,network.each_edge_capacity[edge]))
+
+        return objective_value
+
+    
+
+    def CPLEX_maximizing_delta(self,wk_idx,network,run_step_number,chromosome_id):
+#         for path_id,path_edges in network.set_of_paths.items():
+#             new_edges = []
+#             for edge in path_edges:
+#                 if edge not in network.set_of_virtual_links:
+#                     new_edges.append(edge)
+#             print("path id %s length %s basic Fidelity %s "%(path_id,len(new_edges),network.purification.each_path_basic_fidelity[path_id]))
+            #time.sleep(2)
+        #print("scheme ",network.)
+#         print("network.each_wk_k_weight",wk_idx,network.each_wk_k_weight)
+#         countr = 0
+#         for path_id,path_edges in network.set_of_paths.items():
+#             capacities = []
+#             virtual_link_counter = 0
+#             for edge in path_edges:
+#                 if edge in network.set_of_virtual_links or (edge[1],edge[0]) in network.set_of_virtual_links:
+#                     virtual_link_counter+=1
+#                 capacities.append(network.each_edge_capacity[edge])
+#             print("path id %s length %s %s with %s virtual F %s capac. %s "%(path_id,len(path_edges),len(path_edges)-virtual_link_counter,virtual_link_counter,network.purification.each_path_basic_fidelity[path_id],min(capacities)))
+#         time.sleep(15)
+        countr = 0
+#         for k in network.each_wk_organizations[wk_idx]:
+#                 for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+# #                     if u <40:
+# # #                         print("for flow %s we have %s paths "%(u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
+# #                         #path_ids = network.each_user_pair_all_paths[u]
+# # #                         print("selected paths:     ",network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+# #                         for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+# #                             print("flow %s path legnth %s"%(u,len(network.set_of_paths[p])))
+# #                         print("these are all paths ",len(path_ids),path_ids)
+# #                         print("flow F %s weight %s "%(network.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][u],network.each_wk_k_u_weight[wk_idx][k][u]))
+#                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                         if countr<150:
+#                             Fth = network.purification.get_each_wk_k_u_threshold(wk_idx,k,u)
+#                             path_f = network.purification.each_path_basic_fidelity[p]
+#                             for edge in network.set_of_paths[p]:
+#                                 g_value = network.purification.get_required_purification_EPR_pairs(edge,p,Fth)
+#                             print("for flow %s we use path %s with F %s  to reach Fth %s we need g(.) %s"%(u,p,path_f,Fth,g_value))
+#                     countr+=1
+        list_of_flows = network.each_wk_k_u_weight[wk_idx][0].keys()
+        list_of_flows = list(list_of_flows)
+        list_of_flows.sort()
+        #print("# flows in weight data structure",len(list_of_flows))
+        list_of_flows2 = network.each_wk_each_k_each_user_pair_id_paths[wk_idx][0].keys()
+        list_of_flows2 = list(list_of_flows2)
+        list_of_flows2.sort()
+        #print("# flows in path data structure",len(list_of_flows2))
+
+
+        list_of_flows3 = network.each_wk_each_k_user_pair_ids[wk_idx][0]
+        list_of_flows3 = list(list_of_flows3)
+        list_of_flows3.sort()
+
+
+        try:
+            if len(list_of_flows2)!=len(list_of_flows3) or list_of_flows3!=list_of_flows2:
+                print("ERRRRRRRRRRRRRRRRROOOOOOOOORRRR!!!!!!!!!!")
+                print("from each k flows" ,len(list_of_flows3),list_of_flows3)
+                print("from each k flow paths ",len(list_of_flows2), list_of_flows2)
+                import pdb
+                pdb.set_trace()
             for k in network.each_wk_organizations[wk_idx]:
-                for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:       
+                for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:                
+                    #print("we are k %s u %s"%(k,u))
+                    #print("network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]",network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+#                     print("u %s paths %s # paths %s allowed %s"%
+#                     (u,network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u],len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.num_of_paths))
                     for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
-                        with open(network.path_variables_file_path, 'a') as newFile:                                
-                            newFileWriter = csv.writer(newFile)
-                            newFileWriter.writerow([network.running_path_selection_scheme,run_step_number,chromosome_id,k,u,p,x_vars[k,p].solution_value,wk_idx,objective_value])
+                        w =network.each_wk_k_weight[wk_idx][k]
+                        fw = network.each_wk_k_u_weight[wk_idx][k][u]
+#                         print("wk %s k %s w %s user %s w %s path %s"%
+#                         (wk_idx,k,network.each_wk_k_weight[wk_idx][k],u,network.each_wk_k_u_weight[wk_idx][k][u],p))
+    #                     print("edges of the path",network.set_of_paths[p])
+        except:
+            print("********************************************************")
+            print("********************************************************")
+            print("********************************************************")
+            print("********************************************************")
+            import pdb
+            pdb.set_trace()
+
+        #print("done!")
+
+#         print("network.max_edge_capacity",network.max_edge_capacity,type(network.max_edge_capacity))
+        opt_model = cpx.Model(name="inter_organization_EGR")
+        x_vars  = {(k,p): opt_model.continuous_var(lb=0, ub= network.max_edge_capacity,
+                                  name="w_{0}_{1}".format(k,p))  for k in network.each_wk_organizations[wk_idx]
+                   for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]}
+
+        delta_var  = opt_model.continuous_var(lb=0, ub= network.num_of_paths*network.max_edge_capacity,
+                                  name="delta")
+
+
+        #Edge constraint
+        for edge in network.set_E:
+            #if network.end_level_purification_flag:
+            opt_model.add_constraint(
+                opt_model.sum(x_vars[k,p] 
+                * network.purification.get_required_purification_EPR_pairs(edge,p,network.purification.get_each_wk_k_u_threshold(wk_idx,k,u))
+                for k in network.each_wk_organizations[wk_idx] for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]
+                for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]
+                if network.check_path_include_edge(edge,p))
+                 <= network.each_edge_capacity[edge], ctname="edge_capacity_{0}".format(edge))
+
+        # constraint for each flow 
+        
+        for k in network.each_wk_organizations[wk_idx]:
+            for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                flow_weight = network.each_wk_k_u_weight[wk_idx][k][u]
+                opt_model.add_constraint(
+                opt_model.sum(x_vars[k,p] for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+                    >= delta_var * flow_weight
+                 , ctname="each_flow_rate_{0}_{1}".format(k,u))
+            
+
+        objective = opt_model.sum(delta_var)
+
+
+        # for maximization
+        opt_model.maximize(objective)
+
+    #     opt_model.solve()
+        #opt_model.print_information()
+        #try:
+        opt_model.solve()
+
+
+#         print('docplex.mp.solution',opt_model.solution)
+        objective_value = 0
+        try:
+            if opt_model.solution:
+                objective_value =opt_model.solution.get_objective_value()
+        except ValueError:
+            print(ValueError)
+
+        if objective_value>0:
+            sum_rates = 0
+            for k in network.each_wk_organizations[wk_idx]:
+                for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                    for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+                        sum_rates = sum_rates +x_vars[k,p].solution_value*network.each_wk_k_weight[wk_idx][k] * network.each_wk_k_u_weight[wk_idx][k][u]
+
+        print(" ************** sum_rates is ******* ",sum_rates)
+        
+        
+        
+        if run_step_number  in [0,50,100,500,900,1000]:
+            # we store results
+            if objective_value>0:
+                purification_schemes_string = ""
+                for pur_scheme in network.purification.allowed_purification_schemes:
+                    if purification_schemes_string:
+                        purification_schemes_string = purification_schemes_string+","+pur_scheme
+                    else:
+                        purification_schemes_string = pur_scheme
+                list_of_flows = []
+                for k in network.each_wk_organizations[wk_idx]:
+                    for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+                        w=network.each_wk_k_u_weight[wk_idx][k][u] 
+                        flow_sum = 0
+                        if u not in list_of_flows:
+                            list_of_flows.append(u)
+                        for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+                            flow_sum =x_vars[k,p].solution_value+flow_sum
+    #                             if x_vars[k,p].solution_value>1:
+    #                                 edge_capacities = []
+    #                                 for edge in network.set_of_paths[p]:
+    #                                     if network.check_path_include_edge(edge,p):
+    #                                         edge_capacity = network.each_edge_capacity[edge]
+    #                                         Fth = network.purification.get_each_wk_k_u_threshold(wk_idx,k,u)
+    #                                         path_f = network.purification.each_path_basic_fidelity[p]
+    #                                         edge_capacities.append(edge_capacity)
+    #                                         g_value = network.purification.get_required_purification_EPR_pairs(edge,p,Fth)
+    #                                 print("sum %s solver %s for x_vars[%s,%s] we have %s  which *w*g(.) %s = %s < %s"%(round(sum_rates,2),round(objective_value,2),k,p,x_vars[k,p].solution_value,g_value,g_value*w*x_vars[k,p].solution_value,round(min(edge_capacities),)))
+                            
+                            with open(network.path_variables_file_path, 'a') as newFile:                                
+                                newFileWriter = csv.writer(newFile)
+                                newFileWriter.writerow([network.running_path_selection_scheme,
+                                                        run_step_number,chromosome_id,k,u,p,
+                                                        network.purification.two_qubit_gate_fidelity,
+                                                        network.purification.measurement_fidelity,
+                                                        network.alpha_value,x_vars[k,p].solution_value,
+                                                        wk_idx,sum_rates,
+                                                        purification_schemes_string,network.number_of_flows])
+                        print("flow %s from %s  has rate %s "%(u,len(list_of_flows),int(flow_sum)))
+        
         return objective_value
     
     def CPLEX_swap_scheduling(self,wk_idx,network):

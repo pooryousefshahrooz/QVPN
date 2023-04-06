@@ -42,6 +42,19 @@ class Genetic_algorithm:
         self.genetic_algorithm_initial_population = config.genetic_algorithm_initial_population
         self.only_elit = config.ga_only_elit_to_generate_population
         self.dynamic_policy_flag = config.dynamic_policy_flag
+        
+        # we use this to check if we are allowed to directly move the indiviual to the next generation
+        self.moving_indivitual_to_next_gen = config.moving_indivituals_to_next_gen
+        
+        # we use the static values in static policy settign for ga
+        
+        self.static_crossover_p = config.static_crossover_p
+        self.static_mutation_p = config.static_mutation_p
+        self.static_elit_pop_size = config.static_elit_pop_size
+        self.static_multi_point_crossover_value = config.static_multi_point_crossover_value
+        self.static_multi_point_mutation_value = config.static_multi_point_mutation_value
+            
+        
         self.each_fitness_chromosomes = {}
         self.chromosomes = [[1,2,3],[4,5,6]]# an example of chromosomes. Each list in this list is one chromosome
         #each chromosome is a list of paths ids. For example if we have three user pairs and
@@ -93,27 +106,33 @@ class Genetic_algorithm:
     
     def mutation_op(self,chromosome):
         """this function applies mutation operator to the given chromosome"""
-        random_value = random.uniform(0,1)
-        if random_value <=self.mutation_p:
-            points = []
-            while(len(points)< self.multi_point_mutation_value):
+        
+        points = []
+        tries = 0
+        while(tries< self.multi_point_mutation_value):
+            tries+=1
+            random_value1 = random.uniform(0,1)
+            if random_value1 <=self.mutation_p:
                 random_value = random.randint(0,len(chromosome)-1)
                 if random_value not in points:
                     points.append(random_value)
-            points.sort()
-            for random_point in points:
-                possible_values = self.each_path_replaceable_paths[chromosome[random_point]]
-                new_value = chromosome[random_point]
-                if len(possible_values)>1:
-                    while(new_value==chromosome[random_point]):
-                        new_value = possible_values[random.randint(0,len(possible_values)-1)]
-                chromosome[random_point]= new_value
+            
+        points.sort()
+        for random_point in points:
+            possible_values = self.each_path_replaceable_paths[chromosome[random_point]]
+            new_value = chromosome[random_point]
+            if len(possible_values)>1:
+                while(new_value==chromosome[random_point]):
+                    new_value = possible_values[random.randint(0,len(possible_values)-1)]
+            chromosome[random_point]= new_value
         return chromosome
     def selection_random_chromosomes(self,number):
         assert number in [1,2],"Either ask one or two chromosomes!"
         if number ==2:
             if len(self.elit_population)==0:
                 chromosome1= self.chromosomes[random.randint(0,len(self.chromosomes)-1)]
+                chromosome2 = self.chromosomes[random.randint(0,len(self.chromosomes)-1)]
+                return chromosome1,chromosome2
             elif len(self.elit_population)==1:
                 chromosome1= self.elit_population[random.randint(0,len(self.elit_population)-1)]
                 chromosome2 = chromosome1
@@ -121,8 +140,8 @@ class Genetic_algorithm:
             else:
                 chromosome1= self.elit_population[random.randint(0,len(self.elit_population)-1)]
                 chromosome2 = chromosome1
-                while(chromosome2==chromosome1):
-                    chromosome2= self.elit_population[random.randint(0,len(self.elit_population)-1)]
+                #while(chromosome2==chromosome1):
+                chromosome2= self.elit_population[random.randint(0,len(self.elit_population)-1)]
                
                 return chromosome1,chromosome2
         elif number ==1:
@@ -164,10 +183,15 @@ class Genetic_algorithm:
         while(len(new_population)<len(self.chromosomes)):
             new_elected_chromosomes = []
             chromosome1,chromosome2 = self.selection_random_chromosomes(2)
+            if self.moving_indivitual_to_next_gen:
+                new_elected_chromosomes.append(chromosome1)
+                new_elected_chromosomes.append(chromosome2)
             chromosome1,chromosome2 = self.crossover_op(chromosome1,chromosome2)
             new_elected_chromosomes.append(chromosome1)
             new_elected_chromosomes.append(chromosome2)
             chromosome3 = self.selection_random_chromosomes(1)
+            if self.moving_indivitual_to_next_gen:
+                new_elected_chromosomes.append(chromosome3)
             chromosome3 = self.mutation_op(chromosome3)
             new_elected_chromosomes.append(chromosome3)
             if new_elected_chromosomes:
@@ -178,13 +202,20 @@ class Genetic_algorithm:
     def update_operation_probabilities(self,runs_of_genetic_algorithm,config):
         """this function update the selection, crossover, and mutation probabilities to
         trade-of between exploration and exploitation"""
-        pass
+        if not self.dynamic_policy_flag:
+            self.crossover_p = self.static_crossover_p
+            self.mutation_p = self.static_mutation_p
+            self.elit_pop_size = self.static_elit_pop_size
+            self.multi_point_crossover_value = self.static_multi_point_crossover_value
+            self.multi_point_mutation_value = self.static_multi_point_mutation_value
+            
         if self.dynamic_policy_flag and runs_of_genetic_algorithm % config.ga_elit_pop_update_step == config.ga_elit_pop_update_step - 1:            
-            self.elit_pop_size =max(self.elit_pop_size-5,10) 
+            self.elit_pop_size =max(self.elit_pop_size-3,20) 
             
         if self.dynamic_policy_flag and runs_of_genetic_algorithm % config.ga_crossover_mutation_update_step == config.ga_crossover_mutation_update_step - 1:            
 
             self.crossover_p = max(self.crossover_p-0.05,0.5)
+            self.mutation_p = max(self.mutation_p-0.05,0.2)
         if self.dynamic_policy_flag and runs_of_genetic_algorithm % config.ga_crossover_mutation_multi_point_update_step == config.ga_crossover_mutation_multi_point_update_step - 1:
             self.multi_point_crossover_value = max(self.multi_point_crossover_value-1,1)
             self.multi_point_mutation_value = max(self.multi_point_mutation_value-1,1)
@@ -201,23 +232,31 @@ class Genetic_algorithm:
         network.valid_flows = []
         for k in network.each_wk_organizations[wk_idx]:
             for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-                if user_pair_id not in network.valid_flows and len(network.each_user_pair_all_paths[user_pair_id])>0:
+                user_pair = network.each_wk_k_id_pair[wk_idx][k][user_pair_id]
+                if user_pair_id not in network.valid_flows and len(network.each_user_pair_id_all_paths[user_pair_id])>0:
                     network.valid_flows.append(user_pair_id)
                 network.each_user_organization[user_pair_id] = k
         network.valid_flows.sort()
         self.chromosomes = []
-        print("for work load %s we have these flows %s "%(wk_idx,network.valid_flows))
-        
+#         print("for work load %s we have these flows %s "%(wk_idx,network.valid_flows))
+        added_solutions = 0
         
         # We use the paths computed by EGR scheme to initiate the genetic algorth population
         if self.genetic_algorithm_initial_population=="EGR":
                 for i in range(int(self.random_initial_population*self.number_of_chromosomes/100)):
                     chromosome = []# this is a new chromosome
                     for k in network.each_wk_organizations[wk_idx]:# Since we have only one organization, the value of k is always zero
-                        for user_pair_id in network.valid_flows:
+#                         for user_pair_id in network.valid_flows:
+                        for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
                             path_counter = 0
-                            path_ids = network.each_scheme_each_user_pair_paths["EGR"][user_pair_id]
-                            
+                            user_pair = network.each_wk_k_id_pair[wk_idx][k][user_pair_id]
+                            path_ids = network.each_scheme_each_user_pair_id_paths["EGR"][user_pair_id]
+                            selected_path_ids = []
+                            random.shuffle(path_ids)
+                            for path_id in path_ids:
+                                if len(selected_path_ids)<=network.candidate_paths_size_for_genetic_alg:
+                                    selected_path_ids.append(path_id)
+                            path_ids=selected_path_ids
                             # we want to know what possible values are for this path to be replaced in mutation
                             for p_id1 in path_ids: 
                                 possible_values = []
@@ -234,6 +273,7 @@ class Genetic_algorithm:
                                 path_id = path_ids[random.randint(0,len(path_ids)-1)]# get one random path
                                 chromosome.append(path_id)
                     self.chromosomes.append(chromosome)
+                    added_solutions+=1
         
         
         # if true, we initialize the first population from the results of rl after config.genetic_algorithm_initial_population_rl_epoch_number epoch numbers of training
@@ -277,14 +317,14 @@ class Genetic_algorithm:
                                 #time.sleep(1)
                                 #time.sleep(1)
                                 try:
-                                    network.each_scheme_each_user_pair_paths["RL"][flow_id].append(path_id)
+                                    network.each_scheme_each_user_pair_id_paths["RL"][flow_id].append(path_id)
                                 except:
                                     try:
-                                        network.each_scheme_each_user_pair_paths["RL"][flow_id]= [path_id]
+                                        network.each_scheme_each_user_pair_id_paths["RL"][flow_id]= [path_id]
                                     except:
                                         try:
-                                            network.each_scheme_each_user_pair_paths["RL"]= {}
-                                            network.each_scheme_each_user_pair_paths["RL"][flow_id]=[path_id]
+                                            network.each_scheme_each_user_pair_id_paths["RL"]= {}
+                                            network.each_scheme_each_user_pair_id_paths["RL"][flow_id]=[path_id]
                                         except ValueError:
                                             print("Error",ValueError)
                         else:
@@ -292,20 +332,22 @@ class Genetic_algorithm:
             for i in range(int(self.random_initial_population*self.number_of_chromosomes/100)):
                 chromosome = []# this is a new chromosome
                 for k in network.each_wk_organizations[wk_idx]:# Since we have only one organization, the value of k is always zero
-                    for user_pair_id in network.valid_flows:
+#                     for user_pair_id in network.valid_flows:
+                    for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
                         path_counter = 0
+                        user_pair = network.each_wk_k_id_pair[wk_idx][k][user_pair_id]
                         try:
-                            path_ids = network.each_scheme_each_user_pair_paths["RL"][user_pair_id]
-                            print("we have these path ids  %s from RL for flow %s "%(user_pair_id,path_ids))
-                            all_path_ids = network.each_user_pair_all_paths[user_pair_id]
+                            path_ids = network.each_scheme_each_user_pair_id_paths["RL"][user_pair_id]
+#                             print("we have these many path ids  %s from RL for flow %s "%(user_pair_id,len(path_ids)))
+                            all_path_ids = network.each_user_pair_id_all_paths[user_pair_id]
 #                             print("and all the path ids for this flow are %s "%(all_path_ids))
                             #time.sleep(3)
                         except:
                             try:
-                                path_ids = network.each_scheme_each_user_pair_paths["Hop"][user_pair_id]
+                                path_ids = network.each_scheme_each_user_pair_id_paths["Hop"][user_pair_id]
                             except:
                                 try:
-                                    path_ids = network.each_scheme_each_user_pair_paths["EGR"][user_pair_id]
+                                    path_ids = network.each_scheme_each_user_pair_id_paths["EGR"][user_pair_id]
                                 except:
                                     path_ids =[]
                         # we want to know what possible values are for this path to be replaced in mutation
@@ -323,50 +365,80 @@ class Genetic_algorithm:
                             path_id = path_ids[random.randint(0,len(path_ids)-1)]# get one random path
                             chromosome.append(path_id)
                 self.chromosomes.append(chromosome)
-                
+                added_solutions+=1
                 
         # We use the paths computed by EGR scheme to initiate the genetic algorth population
         elif self.genetic_algorithm_initial_population=="Hop":
                 for i in range(int(self.random_initial_population*self.number_of_chromosomes/100)):
                     chromosome = []# this is a new chromosome
                     for k in network.each_wk_organizations[wk_idx]:# Since we have only one organization, the value of k is always zero
-                        for user_pair_id in network.valid_flows:
-                           
-                            path_counter = 0
-                            path_ids = network.each_scheme_each_user_pair_paths["Hop"][user_pair_id]
-                            print("for flow %s we have candidate paths %s "%(user_pair_id,path_ids))
+#                         for user_pair_id in network.valid_flows:
+                        for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                            
+                            
+                            user_pair = network.each_wk_k_id_pair[wk_idx][k][user_pair_id]
+                            path_ids = network.each_scheme_each_user_pair_id_paths["Hop"][user_pair_id]
+                            
+#                             print("for wk %s k %s flow %s we have %s paths with %s paths with edge_Fth 0.992"%(wk_idx,k,user_pair_id,len(path_ids),valid_path))
+                            all_possible_path_ids = network.each_user_pair_id_all_paths[user_pair_id]
+                            selected_path_ids = []
+#                             random.shuffle(path_ids)
+                            for path_id in path_ids:
+#                                if len(selected_path_ids)<=network.candidate_paths_size_for_genetic_alg and network.purification.each_path_edge_level_Fth[path_id]==0.992:
+                                if len(selected_path_ids)<=network.candidate_paths_size_for_genetic_alg:
+                                    selected_path_ids.append(path_id)
+                            path_ids=selected_path_ids
+#                             print("for wk %s k %s flow %s we have # candidate paths %s "%(wk_idx,k,user_pair_id,path_ids))
                             # we want to know what possible values are for this path to be replaced in mutation
-                            for p_id1 in path_ids: 
+                            for p_id1 in all_possible_path_ids: 
                                 possible_values = []
-                                for p_id2 in path_ids:
+                                for p_id2 in all_possible_path_ids:
                                     if p_id1 !=p_id2:
                                         possible_values.append(p_id2)
                                 self.each_path_replaceable_paths[p_id1] = possible_values
+                            path_counter = 0
                             for path_id in path_ids:
                                 if path_counter <network.num_of_paths:# check how many paths have been selected for each user pair
+#                                     if network.purification.each_path_edge_level_Fth[path_id]==0.992:
+#                                         print("we are adding path ",path_id,path_counter)
                                     chromosome.append(path_id)
                                     path_counter+=1
-                            path_tracher_index=0
-                            for i in range(path_counter,network.num_of_paths):
-                                
-                                
-                                path_id = path_ids[path_tracher_index]# get one random path
-                                chromosome.append(path_id)
-                                path_tracher_index+=1
-                                if path_tracher_index==len(path_ids):
-                                    path_tracher_index = 0
+                            if len(path_ids)==0:
+                                for i in range(path_counter,network.num_of_paths):
+                                    path_id==-1
+                                    chromosome.append(path_id)
+                            else:
+                                path_tracker_index=0
+                                for i in range(path_counter,network.num_of_paths):
+                                    path_id = path_ids[path_tracker_index]# get one random path
+                                    chromosome.append(path_id)
+                                    path_tracker_index+=1
+                                    if path_tracker_index==len(path_ids):
+                                        path_tracker_index = 0
                     self.chromosomes.append(chromosome)
+                    added_solutions+=1
         print("we initialized %s chromosomes "%(len(self.chromosomes)))
         print("and we will add %s more "%(self.number_of_chromosomes-len(self.chromosomes)))
         time.sleep(5)
         for i in range(self.number_of_chromosomes-int(len(self.chromosomes))):
             chromosome = []# this is a new chromosome
             for k in network.each_wk_organizations[wk_idx]:# Since we have only one organization, the value of k is always zero
-                for user_pair_id in network.valid_flows:
+#                 for user_pair_id in network.valid_flows:
+                for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
                     path_counter = 0
+                    user_pair = network.each_wk_k_id_pair[wk_idx][k][user_pair_id]
                     while(path_counter <network.num_of_paths):# check how many paths have been selected for each user pair
-                        path_ids = network.each_user_pair_all_paths[user_pair_id]
-                        path_id = path_ids[random.randint(0,len(path_ids)-1)]# get one random path
+                        path_ids = network.each_user_pair_id_all_paths[user_pair_id]
+                        selected_path_ids = []
+                        random.shuffle(path_ids)
+                        for path_id in path_ids:
+                            if len(selected_path_ids)<=network.candidate_paths_size_for_genetic_alg:
+                                selected_path_ids.append(path_id)
+                        path_ids=selected_path_ids
+                        if len(path_ids)>0:
+                            path_id = path_ids[random.randint(0,len(path_ids)-1)]# get one random path
+                        else:
+                            path_id==-1
                         chromosome.append(path_id)
                         # we want to know what possible values are for this path to be replaced in mutation
                         for p_id1 in path_ids: 
@@ -378,7 +450,9 @@ class Genetic_algorithm:
                         path_counter+=1
                     #print("for flow %s we have paths %s"%(user_pair_id,path_ids))
                     #time.sleep(1)
+            print("one solution was added %s left %s "%(added_solutions,(self.number_of_chromosomes-added_solutions)))
             self.chromosomes.append(chromosome)
+            added_solutions+=1
         
                                 
         print("we have %s chromosomes "%(len(self.chromosomes)))
