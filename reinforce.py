@@ -4,6 +4,12 @@
 # In[ ]:
 
 
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+
 from __future__ import print_function
 
 import numpy as np
@@ -61,7 +67,7 @@ class RL:
         self.epoch_numbers = 1
         self.baseline = "avg"
         self.ckpt = ''
-        self.training_testing_switching_file = "training_testing_switching_file.txt"
+        self.training_testing_switching_file = config.training_testing_switching_file
         
         #we use lock to write on the training and testing switching file 
         self.lock = threading.Lock()
@@ -69,44 +75,56 @@ class RL:
         
     
     def get_testing_flag(self):
-        try:
-            f = open(self.training_testing_switching_file+".txt", 'r')
-        except:
-            f = open(self.training_testing_switching_file, 'r')
-        for line in f:
-            if line:
-                line = line.strip()
-                link = line.split('\t')
-                #print(line,link)
-                step,testing_flag = link
-                if testing_flag=="True":
-                    return step,True
-                else:
-                    return step,False
-        f.close()
-    def set_testing_flag(self,last_step,training_flag):
-        print("we are going to set the flag of testing to %s with step %s "%(training_flag,last_step))
         self.lock.acquire()
+        counter = 0
+        while(True):
+            print("we wait untile we can read the file! try number %s"%(counter))
+            #time.sleep(0.1)
+            counter+=1
+            try:
+                f = open(self.training_testing_switching_file, 'r')
+                for line in f:
+                    if line:
+                        line = line.strip()
+                        link = line.split('\t')
+                        #print(line,link)
+                        step,testing_flag = link
+                        if testing_flag=="True":
+                            self.lock.release()
+                            return step,True
+                        else:
+                            self.lock.release()
+                            return step,False
+            except:
+                pass
+            
+    def set_testing_flag(self,last_step,training_flag):
+#         print("we are going to set the flag of testing to %s with step %s "%(training_flag,last_step))
+        self.lock.acquire()
+        if not os.path.isfile(self.training_testing_switching_file):
+            f = open(self.training_testing_switching_file, "w")
+            f.write(str(last_step)+"\t"+str("True")+"\n")
+            f.close()
+            
         with open(self.training_testing_switching_file, "w") as file_object:
             if training_flag:
                 file_object.write(str(last_step)+"\t"+str("True")+"\n")
             else:
                 file_object.write(str(last_step)+"\t"+str("False")+"\n")
-        file_object.close()
         self.lock.release()
         
-        try:
-            f = open(self.training_testing_switching_file+".txt", 'r')
-        except:
-            f = open(self.training_testing_switching_file, 'r')
-        for line in f:
-            if line:
-                line = line.strip()
-                link = line.split('\t')
-                #print(line,link)
-                step,testing_flag = link
-                print("this is what we read from file ",line)
-        print("we set the flag of testing to %s with step %s "%(training_flag,last_step))
+#         try:
+#             f = open(self.training_testing_switching_file+".txt", 'r')
+#         except:
+#             f = open(self.training_testing_switching_file, 'r')
+#         for line in f:
+#             if line:
+#                 line = line.strip()
+#                 link = line.split('\t')
+#                 #print(line,link)
+#                 step,testing_flag = link
+#                 print("this is what we read from file ",line)
+#         print("we set the flag of testing to %s with step %s "%(training_flag,last_step))
     def central_agent(self,config, topology_name,game, model_weights_queues, experience_queues):
         model = Model(config,topology_name, game.state_dims, game.action_dim, game.max_moves, master=True)
         model.save_hyperparams(config)
@@ -151,22 +169,20 @@ class RL:
                     for g in range(len(critic_gradients)):
                         assert np.any(np.isnan(critic_gradients[g])) == False, ('critic_gradients', s_batch, a_batch, r_batch)
 
-                if step % config.save_step == config.save_step -1:
-                    print("going to store checkpoint in training step ",step)
+                if step % config.save_step == config.save_step - 1:
                     testing_flag = False
                     last_step = step
-                    while(testing_flag):
-                        try:
-                            last_step,testing_flag = self.get_testing_flag()
-                        except:
-                            pass
-                        if not testing_flag:
-                            print("training and the flag is %s which means we can save"%(testing_flag))
-                        else:
-                            print("training and the flag is %s which means we have to wait!"%(testing_flag))
-                            time.sleep(2)
+#                     while(testing_flag):
+#                         #try:
+#                         last_step,testing_flag = self.get_testing_flag()
                         
-                        last_step= int(last_step)
+#                         if not testing_flag:
+#                             print("training and the flag is %s which means we can save"%(testing_flag))
+#                         else:
+#                             print("training and the flag is %s which means we have to wait!"%(testing_flag))
+#                             time.sleep(2)
+                        
+#                         last_step= int(last_step)
                     model.save_ckpt(_print=True)
 
                     #log training information
@@ -183,7 +199,15 @@ class RL:
                         }, step)
                     print('lr:%f, value loss:%f, avg reward:%f, avg entropy:%f step %s'%(actor_learning_rate, avg_value_loss, avg_reward, avg_entropy,step))
                     self.set_testing_flag(step,True)
-                   
+#                     testing_flag = True
+#                     while(testing_flag):
+#                         last_step,testing_flag = self.get_testing_flag() 
+#                         if not testing_flag:
+#                             print("training and the flag is %s which means we can save"%(testing_flag))
+#                         else:
+#                             print("training and the flag is %s which means we have to wait!"%(testing_flag))
+#                             time.sleep(2)
+#                         last_step= int(last_step)
                     
             elif config.method == 'pure_policy':
                 #assemble experiences from the agents
@@ -217,22 +241,20 @@ class RL:
                     for g in range(len(gradients)):
                         assert np.any(np.isnan(gradients[g])) == False, (s_batch, a_batch, r_batch)
 
-                if step % config.save_step == config.save_step -1:
-                    print("2 going to store checkpoint in training step ",step)
+                if step % config.save_step == config.save_step - 1:
                     testing_flag = False
                     last_step = step
-                    while(testing_flag):
-                        try:
-                            last_step,testing_flag = self.get_testing_flag()
-                        except:
-                            pass
+#                     while(testing_flag):
+#                         #try:
+#                         last_step,testing_flag = self.get_testing_flag()
                         
-                        if not testing_flag:
-                            print("training and the flag is %s which means we can save"%(testing_flag))
-                        else:
-                            print("training and the flag is %s which means we have to wait!"%(testing_flag))
-                            time.sleep(2)
-                        last_step= int(last_step)
+                        
+#                         if not testing_flag:
+#                             print("training and the flag is %s which means we can save"%(testing_flag))
+#                         else:
+#                             print("training and the flag is %s which means we have to wait!"%(testing_flag))
+#                             time.sleep(2)
+#                         last_step= int(last_step)
                     model.save_ckpt(_print=True)
 
                     #log training information
@@ -248,7 +270,15 @@ class RL:
                         }, step)
                     print('lr:%f, avg reward:%f, avg advantage:%f, avg entropy:%f step %s'%(learning_rate, avg_reward, avg_advantage, avg_entropy,step))
                     self.set_testing_flag(step,True)
-                
+#                     testing_flag = True
+#                     while(testing_flag):
+#                         last_step,testing_flag = self.get_testing_flag() 
+#                         if not testing_flag:
+#                             print("training and the flag is %s which means we can save"%(testing_flag))
+#                         else:
+#                             print("training and the flag is %s which means we have to wait!"%(testing_flag))
+#                             time.sleep(2)
+#                         last_step= int(last_step)
                     
     def agent(self,agent_id, config, game,network, wk_subset, model_weights_queue, experience_queue):
         random_state = np.random.RandomState(seed=agent_id)
@@ -268,10 +298,9 @@ class RL:
         num_wks = len(wk_subset)
         random_state.shuffle(wk_subset)
         run_iterations = self.num_iter
-        print("we are in agent ")
         while True:
             wk_idx = wk_subset[idx]
-            print("training work load %s from %s "%(wk_idx,len(wk_subset)))
+#             print("training work load %s from %s "%(wk_idx,len(wk_subset)))
             network.get_each_user_all_paths(wk_idx,False)
             #state
             state = game.get_state(wk_idx,network,False)
@@ -286,15 +315,16 @@ class RL:
             
             assert np.count_nonzero(policy) >= game.max_moves, (policy, state)
             actions = random_state.choice(game.action_dim, game.max_moves, p=policy, replace=False)
-#             print("we selected top paths %s which are %s"%(len(actions),actions))
+#             print("we selected top paths %s which are %s"%(len(actions),len(actions)))
             
             for a in actions:
                 a_batch.append(a)
 
             #reward
+#             print("going to compute the reward")
             reward = game.reward(wk_idx,network,actions,solver)
             
-            print("training for workload %s got reward %s "%(wk_idx,reward))
+#             print("training for workload %s got reward %s "%(wk_idx,reward))
             #print("reward is ",reward)
             r_batch.append(reward)
 
@@ -307,8 +337,9 @@ class RL:
                     best_actions = policy.argsort()[-game.max_moves:]
                     best_reward = game.reward(wk_idx, best_actions)
                     ad_batch.append(reward - best_reward)
-
+            
             run_iteration_idx += 1
+#             print("run_iteration_idx >= run_iterations",run_iteration_idx , run_iterations)
             if run_iteration_idx >= run_iterations:
                 # Report experience to the coordinator                          
                 if config.method == 'actor_critic':    
@@ -387,6 +418,7 @@ class RL:
         elif config.method == 'pure_policy':
             policy = model.policy_predict(np.expand_dims(state, 0)).numpy()[0]
         actions = policy.argsort()[-game.max_moves:]
+#         print("got the action for testing for wk %s "%(wk_idx))
         egr = game.evaluate(wk_idx,network,solver,"RL",actions) 
         return actions,egr
     def test(self,config,network):
@@ -395,26 +427,28 @@ class RL:
         new_last_step = 1
         testing_flag = True
         solver = Solver()
-        print("****************** testing ********************************")
+#         print("****************** testing ********************************")
         while(last_step<self.epoch_numbers):
             #print("going to call self.get_testing_flag(last_step) ******************** ")
             while(not testing_flag):
-                try:
-                    new_last_step,testing_flag = self.get_testing_flag()
-                    print(" testing we read the file and it was flag %s step %s"%(testing_flag,new_last_step))
-                except:
-                    pass
-    #             print("******* this is our step and flag %s %s **********"%(last_step,testing_flag))
-                if not testing_flag:
-                    print("testing and the flag is %s which means we have to wait!"%(testing_flag))
-                    time.sleep(2)
-                else:
-                    print("testing and the flag is %s which means we can test :)"%(testing_flag))
+#                 try:
+                new_last_step,testing_flag = self.get_testing_flag()
+#                 print(" testing we read the file and it was flag %s step %s last_step %s"%(testing_flag,new_last_step,last_step))
+#                 except:
+#                     pass
+                    #new_last_step = 
+                    #testing_flag = True
+#     #             print("******* this is our step and flag %s %s **********"%(last_step,testing_flag))
+#                 if not testing_flag:
+#                     print("testing and the flag is %s which means we have to wait!"%(testing_flag,new_last_step,last_step))
+#                     time.sleep(2)
+#                 else:
+#                     print("testing and the flag is %s new_last_step %s last_step %s which means we can test :)"%(testing_flag,new_last_step,last_step))
                     
                 new_last_step = int(new_last_step)
             
             if new_last_step>last_step:
-                
+                print("starting to test the gradient-based scheme")
                 last_step = new_last_step
                 self.ckpt = ''
                 #Using cpu for testing
@@ -426,47 +460,51 @@ class RL:
                 """we first find the candidate paths and use it for action dimention"""
                 # we set the state dimention and action dimention
                 game = CFRRL_Game(config, network)
-                model = Model(config,network.topology_name, game.state_dims, game.action_dim, game.max_moves)
+                model2 = Model(config,network.topology_name, game.state_dims, game.action_dim, game.max_moves)
         #         last_chckpoint = model.restore_ckpt(FLAGS.ckpt)
-                last_chckpoint = model.restore_ckpt(self.ckpt)
-                model = Model(config,network.topology_name, game.state_dims, game.action_dim, game.max_moves)
+                last_chckpoint = model2.restore_ckpt(self.ckpt)
+                #model2 = Model(config,network.topology_name, game.state_dims, game.action_dim, game.max_moves)
         #         model = Model(config, game.state_dims, game.action_dim, game.max_moves)
         #             current_chckpoint = model.restore_ckpt(FLAGS.ckpt)
-                current_chckpoint = model.restore_ckpt(self.ckpt)
+#                 current_chckpoint = model2.restore_ckpt(self.ckpt)
                 if config.method == 'actor_critic':
-                    learning_rate = model.lr_schedule(model.actor_optimizer.iterations.numpy()).numpy()
+                    learning_rate = model2.lr_schedule(model2.actor_optimizer.iterations.numpy()).numpy()
                 elif config.method == 'pure_policy':
-                    learning_rate = model.lr_schedule(model.optimizer.iterations.numpy()).numpy()
-                print('\nstep %d, learning rate: %f\n'% (current_chckpoint, learning_rate))
-                time_in_seconds = time.time()
+                    learning_rate = model2.lr_schedule(model2.optimizer.iterations.numpy()).numpy()
+#                 print('\nstep %d, learning rate: %f\n'% (current_chckpoint, learning_rate))
                 for wk_idx in range(len(game.testing_wk_indexes)):
                     
-                    print(" *** going to get the paths of all users in workload %s out of %s ***"%(wk_idx,len(game.testing_wk_indexes)))
-                    network.get_each_user_all_paths(wk_idx,False)
-                    actions,rl_egr= self.sim(config,model,network,solver,game,wk_idx)
+#                     print(" *** going to get all the paths of users in workload %s out of %s ***"%(wk_idx,len(game.testing_wk_indexes)))
+                    network.get_each_user_all_paths(wk_idx,True)
+#                     print("got the path info")
+                    actions,rl_egr= self.sim(config,model2,network,solver, game,wk_idx)
                     print("testing for workload %s got egr %s "%(wk_idx,rl_egr))
+                    time_in_seconds = time.time()
                     network.save_results(wk_idx,config,False,True,False,False,new_last_step,rl_egr,0,0,time_in_seconds)
-                    print("we saved the results in file!")
                     if config.save_rl_results_for_initialization and new_last_step in config.set_of_epoch_for_saving_rl_results_for_ga:
-                        print("we have wk %s epoch number %s and target to save path information are %s"%(wk_idx,new_last_step,config.set_of_epoch_for_saving_rl_results_for_ga))
-                        print("we are going to save")
+#                         print("we have wk %s epoch number %s and target to save path information are %s"%(wk_idx,new_last_step,config.set_of_epoch_for_saving_rl_results_for_ga))
+#                         print("we are going to save")
                         network.save_rl_results_for_genetic_initialization(config,wk_idx,new_last_step,rl_egr)
-                    else:
-                        print("no save! to initialize genetic epoch number %s worklosd %s from %s "%(new_last_step,wk_idx,len(game.testing_wk_indexes)))
+#                     else:
+#                         print("no save! epoch number %s worklosd %s from %s "%(new_last_step,wk_idx,len(game.testing_wk_indexes)))
                     
                     if new_last_step%100==0:
                         print(" ****epoch #",new_last_step,"# paths",network.num_of_paths,"wk_idx",wk_idx,
                                     "RL",rl_egr)
-                self.set_testing_flag(new_last_step,False)
+                #self.set_testing_flag(new_last_step,False)
                     
             else:
-                print("the flag for testing is set to true %s but we already have trained for this epoch number %s "%(testing_flag,new_last_step))
-                time.sleep(3)
-                new_last_step,testing_flag = self.get_testing_flag()
+                print("the flag for testing is set to true %s but we already have trained for that epoch number %s "%(testing_flag,new_last_step))
+                time.sleep(0.3)
+                try:
+                    new_last_step,testing_flag = self.get_testing_flag()
+                except:
+                    pass
                 new_last_step = int(new_last_step)
-                print(" testing 2: we read the file and it was flag %s step %s"%(testing_flag,new_last_step))
+                print(" And testing 2: we read the file and it was flag %s last_step %s new_last_step %s"%(testing_flag,last_step,new_last_step))
 
                 
+
 
 
 # In[ ]:

@@ -69,11 +69,6 @@ class CFRRL_Game():
                 for flow in flows:
                     if flow not in self.all_flows_across_workloads:
                         self.all_flows_across_workloads.append(flow)
-#         for wk,k_flows in network.each_testing_wk_each_k_user_pairs.items():
-#             for k,flows in k_flows.items():
-#                 for flow in flows:
-#                     if flow not in self.all_flows_across_workloads:
-#                         self.all_flows_across_workloads.append(flow)
         
         state = np.zeros((1, len(self.all_flows_across_workloads),1), dtype=np.float32)   # state  []
         self.state_dims =  state.shape
@@ -85,21 +80,24 @@ class CFRRL_Game():
     def get_state(self, wk_idx,network,testing_falg):
         state = np.zeros((1, len(self.all_flows_across_workloads),1), dtype=np.float32)   # state  []
         indx= 0
+        self.all_flows_across_workloads.sort()
         for flow_id in self.all_flows_across_workloads:
             flag = False
             weight = 0
-#             if testing_falg:
-            for k,flow_ids in network.each_wk_each_k_user_pair_ids[wk_idx].items():
-                if flow_id in flow_ids:
-                    flag = True
+            list_of_organizations = []
+            for k in network.each_wk_each_k_user_pair_ids[wk_idx]:
+                list_of_organizations.append(k)
+            list_of_organizations.sort()
+            for k in list_of_organizations:
+                #print("training for k ",k)
+                list_of_user_pairs = []
+                #print("network.each_wk_each_k_user_pair_ids",network.each_wk_each_k_user_pair_ids)
+                for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                    list_of_user_pairs.append(user_pair_id)
+                list_of_user_pairs.sort()
+                if flow_id in list_of_user_pairs:
                     weight = network.each_wk_k_u_weight[wk_idx][k][flow_id]
-            state[0][indx] = 0
-#             else:
-#                 if flow_id in network.each_wk_each_k_user_pair_ids[wk_idx][0]:                
-#                     weight = network.each_wk_k_u_weight[wk_idx][0][flow_id]
-#                     state[0][indx] = weight
-#                 else:
-#                     state[0][indx] = 0
+            state[0][indx] = weight
             indx+=1
         return state
     def compute_egr(self,actions,wk_idx,network,solver):
@@ -161,6 +159,13 @@ class CFRRL_Game():
     def set_paths_from_action(self,action,wk_idx,network,testing_flag):
         """this function uses the information in the chromosome 
         to set the paths to the data structure that will be used by solver"""
+        def check_any_version_of_the_path_has_been_added(path_id,path_ids,path_versions):
+            for path in path_versions:
+                if path in path_ids:
+                    return False
+            return True
+        """we set the required EPR pairs to achieve each fidelity threshold"""
+        network.purification.set_required_EPR_pairs_for_distilation(wk_idx,network)
         network.each_wk_each_k_each_user_pair_id_paths={}
         network.each_wk_each_k_each_user_pair_id_paths[wk_idx]={}
 #         network.each_wk_each_k_user_pair_ids = {}
@@ -168,15 +173,58 @@ class CFRRL_Game():
 #         network.each_wk_k_u_pair_weight = {}
         path_indx = 0
         each_wk_k_u_path_ids = {}
+        list_of_organizations = []
         for k in network.each_wk_organizations[wk_idx]:
+            list_of_organizations.append(k)
+        list_of_organizations.sort()
+        for k in list_of_organizations:
             #print("training for k ",k)
+            list_of_user_pairs = []
             #print("network.each_wk_each_k_user_pair_ids",network.each_wk_each_k_user_pair_ids)
             for user_pair_id in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+                list_of_user_pairs.append(user_pair_id)
+            list_of_user_pairs.sort()
+            for user_pair_id in list_of_user_pairs:
                 #print("training user pair id %s from %s "%(user_pair_id,len(network.each_wk_each_k_user_pair_ids[wk_idx][k])))
                 paths = network.each_user_pair_id_all_paths[user_pair_id]
+                path_ids = []
+                for path_id in paths:
+                    #print("training for path id %s from %s"%(path_id,len(paths)))
+                    if path_id in action:
+                        path_ids.append(path_id)
+                
+                new_path_ids = []
+                each_path_versions ={}
+                for path_id in path_ids:
+                    each_path_versions[path_id] = [path_id]
+                    if path_id!=-1:
+                        for sec_v_path_id in path_ids:
+                            if path_id!= sec_v_path_id:
+                                if sec_v_path_id in network.purification.each_path_version_numbers[path_id]:
+                                    try:
+                                        each_path_versions[path_id].append(sec_v_path_id)
+                                    except:
+                                        each_path_versions[path_id]=[sec_v_path_id]
+                for path_id,version_path_ids in each_path_versions.items():
+                    edge_g_value = network.purification.each_path_edge_level_g[path_id]
+                    edge_level_g_values = []
+                    for path_id_v in version_path_ids:
+                        edge_level_g_values.append(network.purification.each_path_edge_level_g[path_id_v])
+                    if edge_g_value >= max(edge_level_g_values):
+                        if path_id not in new_path_ids:
+                            if check_any_version_of_the_path_has_been_added(path_id,new_path_ids,network.purification.each_path_version_numbers[path_id]):
+                                if network.purification.check_path_distilability(path_id):
+                                    new_path_ids.append(path_id)
+
+                path_ids = new_path_ids
+                
+                
+                
+                
+                
                 not_even_one_path = False
                 path_counter_for_this_flow = 0
-                for path_id in paths:
+                for path_id in path_ids:
                     #print("training for path id %s from %s"%(path_id,len(paths)))
                     if path_id in action and path_counter_for_this_flow <network.num_of_paths:
                         try:
@@ -231,8 +279,7 @@ class CFRRL_Game():
                             network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][user_pair_id]=[]
                 
      
-        """we set the required EPR pairs to achieve each fidelity threshold"""
-        network.purification.set_required_EPR_pairs_for_distilation(wk_idx,network)
+       
 #         return each_wk_k_u_path_ids
 
     
@@ -243,7 +290,7 @@ class CFRRL_Game():
             chosen_paths.append(item)
         chosen_paths.sort()
         
-        
+#         print("we compute the reward ")
 #         print("in reward we have these paths **************************** ",chosen_paths)
         try:
             if wk_idx in self.each_wk_action_reward:
@@ -331,9 +378,10 @@ class CFRRL_Game():
                 chosen_paths.append(item)
             chosen_paths.sort()
             self.set_paths_from_action(chosen_paths,wk_idx,network,True)
+            
             rl_egr_value  = solver.CPLEX_maximizing_EGR(wk_idx,network,2,2)
-            self.each_testing_wk_action_reward[wk_idx] = {}
-            self.each_testing_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
+#             self.each_testing_wk_action_reward[wk_idx] = {}
+#             self.each_testing_wk_action_reward[wk_idx][tuple(chosen_paths)] = rl_egr_value
 
             return rl_egr_value
             

@@ -43,6 +43,7 @@ class Network:
     def __init__(self,config,purification_object ,topology_file,training_flag):
         self.data_dir = './data/'
         self.topology_file = self.data_dir+topology_file
+        self.work_load_file_extension = config.work_load_file
         self.topology_name = topology_file
         self.toplogy_wk_scheme_result  = config.toplogy_wk_scheme_result_file
         self.training = training_flag
@@ -51,16 +52,20 @@ class Network:
         self.pair_id = 0
         self.number_of_flows = 1
         
-        
+        self.toplogy_wk_paths_for_each_candidate_size = config.toplogy_wk_paths_for_each_candidate_size
         # this is to have minimum rate constraint or not
         self.optimization_problem_with_minimum_rate = config.optimization_problem_with_minimum_rate
-       
+        
+        # this is to have maximum rate constraint or not
+        self.optimization_problem_with_maximum_rate = config.optimization_problem_with_maximum_rate
+        self.max_flow_rate = config.max_flow_rate
+        
         self.num_of_paths = int(config.num_of_paths)
         # we use these two metrics to engineer our original topology
         self.target_long_link=1
         self.repeater_placement_distance = 1
         
-        # minimum rate for flows
+        # minimum rate for flowsgenetic
         self.min_flow_rate = config.min_flow_rate
         # we set this flag if we want to store the rates served to each flow
         
@@ -72,6 +77,9 @@ class Network:
         # this is for checking the results of what epoch should be used in genetic algorthm initialization
         self.genetic_algorithm_initial_population_rl_epoch_number =config.genetic_algorithm_initial_population_rl_epoch_number
         
+        # I use this to read the specific minimum rate constraints in file
+        self.each_flow_minimum_rate = {}
+        self.each_flow_minimum_rate_value_file = config.each_flow_minimum_rate_value_file
         
         # we use this to get the results of the training with how many training work loads
         self.number_of_training_wks = config.number_of_training_wks
@@ -85,7 +93,7 @@ class Network:
         self.each_edge_distance = {}
         self.set_of_paths = {}
         self.each_u_paths = {}
-        
+        self.each_wk_k_user_pair_id_permitted_unique_paths ={}
         self.each_u_all_real_paths = {}
         self.each_u_all_real_disjoint_paths = {}
         self.each_u_paths = {}
@@ -111,8 +119,11 @@ class Network:
         self.each_k_weight = {}
         self.each_k_u_weight = {}
         self.each_wk_k_u_pair_weight = {}
+        self.each_wk_k_u_max_rate_constraint ={}
         self.each_pair_id_paths = {}
         self.each_scheme_each_user_pair_id_paths = {}
+        # this is becasue for each path we can have differen versios depending on distilation strategy
+        self.each_wk_k_user_pair_id_unique_path_ids = {}
         self.each_user_organization = {}
         self.each_wk_organizations={}
         self.each_testing_user_organization = {}
@@ -409,9 +420,14 @@ class Network:
         solver = Solver()
         self.each_link_cost_metric ="Hop" 
         self.set_link_weight("Hop")
-        Thread(target = rl.train, args=(config,self,)).start()
-        time.sleep(10)
+#         Thread(target = rl.train, args=(config,self,)).start()
+#         time.sleep(5)
 #         Thread(target = rl.test, args=(config,self,)).start()
+        if config.training:
+            rl.train(config,self)
+        else:
+            rl.test(config,self)
+        #Thread(target = rl.test, args=(config,self,)).start()
 
                 
     def evaluate_shortest_path_routing(self,config,link_cost_metric):
@@ -433,8 +449,8 @@ class Network:
             """we set the required EPR pairs to achieve each fidelity threshold"""
             self.purification.set_required_EPR_pairs_for_distilation(wk_idx,self)
             # calling the IBM CPLEX solver to solve the optimization problem
-            
-            egr = solver.CPLEX_maximizing_EGR(wk_idx,self,0,0)
+            scheme_name = link_cost_metric+"-based Sh-P-Edge_Fth="+str(self.purification.set_of_edge_level_Fth[0])
+            egr = solver.CPLEX_maximizing_EGR(wk_idx,self,config,None,0,0,0,scheme_name)
             egr = round(egr,3)
 #             egr = solver.CPLEX_maximizing_EGR(wk_idx,self,0,0)
 #             egr = solver.CPLEX_maximizing_delta(wk_idx,self,0,0)
@@ -472,6 +488,7 @@ class Network:
 #                 self.purification.measurement_fidelity
 #                 ,self.number_of_flows,Edge_Fth,len(workloads_with_feasible_solution),sum(all_work_loads_egr)/len(all_work_loads_egr)])
         
+
         
     def get_each_user_all_paths(self,wk_idx,rl_testing_flag):
         """this function will set all the paths of each user pair for the given work load"""
@@ -481,7 +498,8 @@ class Network:
         self.each_user_pair_id_all_paths = {}
         if rl_testing_flag:
             """this part is for the user pairs that exist only in the testing workload but are not in trainign workload"""
-            for k, user_pair_ids in self.each_testing_wk_each_k_user_pair_ids[wk_idx].items():
+#             for k, user_pair_ids in self.each_testing_wk_each_k_user_pair_ids[wk_idx].items():
+            for k, user_pair_ids in self.each_wk_each_k_user_pair_ids[wk_idx].items():
                 #print("we have these user pairs %s in work load %s "%(user_pair_ids,wk_idx))
                 for user_pair_id in user_pair_ids:
                     user_pair = self.each_wk_k_id_pair[wk_idx][k][user_pair_id]
@@ -511,7 +529,9 @@ class Network:
         """this function uses the information in the chromosome 
         to set the paths to the data structure that will be used by solver"""
         
-
+        #chromosome =  [18250, 18279, 18276, 18311, 18387, 18354, 18433, 18461, 18432, 18556, 18486, 18534, 18577, 18639, 18631, 18730, 18717, 18694, 18892, 18815, 18807, 18944, 18950, 18941, 19046, 19033, 18976, 19118, 19079, 19077, 19251, 19252, 19193, 19300, 19306, 19357, 19421, 19437, 19428, 19605, 19597, 19608, 19742, 19718, 19692, 19827, 19828, 19877, 20024, 20069, 20057, 20115, 20134, 20106, 20263, 20292, 20342, 20365, 20360, 20454, 20533, 20482, 20532, 20687, 20646, 20761, 20833, 20802, 20821, 20860, 20848, 20920, 21021, 21016, 21049, 21142, 21116, 21106, 21181, 21189, 21195, 21284, 21252, 21233, 21348, 21312, 21320, 21455, 21461, 21440, 21680, 21527, 21613, 21772, 21740, 21730, 21935, 21876, 21879, 21952, 21958, 22007, 22116, 22071, 22168, 22208, 22244, 22262, 22382, 22444, 22365, 22515, 22563, 22498, 22780, 22799, 22677, 22801, 22843, 22815, 22915, 22955, 22888, 23027, 22985, 23006, 23068, 23059, 23134, 23299, 23307, 23315, 23420, 23410, 23467, 23529, 23540, 23506, 23636, 23713, 23725, 23853, 23788, 23850, 23922, 24043, 23918, 24191, 24205, 24175, 24227, 24253, 24282, 24371, 24331, 24348, 24416, 24464, 24440, 24626, 24588, 24634, 24750, 24684, 24755, 24823, 24846, 24806, 24873, 24986, 24985, 25076, 25097, 25020, 25336, 25332, 25201, 25385, 25381, 25380, 25495, 25456, 25527, 25601, 25573, 25597, 25644, 25636, 25658, 25789, 25788, 25771, 25807, 25956, 25893, 26129, 26029, 26090, 26194, 26219, 26193, 26408, 26418, 26322, 26483, 26480, 26536, 26574, 26596, 26677, 26735, 26782, 26783, 26823, 26859, 26805, 26913, 26940, 26946, 27029, 27040, 27086, 27195, 27210, 27275, 27421, 27381, 27433, 27481, 27490, 27497, 27582, 27537, 27596, 27707, 27764, 27760, 27787, 27801, 27802, 27924, 28026, 28004, 28167, 28057, 28126, 28251, 28364, 28312, 28470, 28473, 28459, 28500, 28556, 28513, 28612, 28778, 28774, 28872, 28817, 28893, 28957, 28922, 28972, 29121, 29098, 29204, 29251, 29289, 29286, 29421, 29387, 29375, 29442, 29452, 29503, 29505, 29540, 29507, 29652, 29658, 29656, 29817, 29852, 29850, 30092, 30026, 30030, 30116, 30130, 30117, 30222, 30255, 30239, 30383, 30387, 30382, 30582, 30606, 30448, 30772, 30644, 30782, 30870, 30842, 30875, 30979, 30933, 30961, 31098, 31050, 31086, 31290, 31294, 31247, 31374, 31382, 31341, 31402, 31397, 31428, 31513, 31689, 31510, 31783, 31775, 31715, 31903, 31852, 31916, 31986, 31996, 31937, 32092, 32094, 32089, 32173, 32150, 32140, 32185, 32190, 32202, 32381, 32355, 32282, 32472, 32446, 32475, 32560, 32521, 32573, 32652, 32672, 32607, 32794, 32809, 32731, 32870, 32862, 32830, 32949, 32940, 33033, 33157, 33199, 33077, 33299, 33293, 33259, 33326, 33362, 33381, 33440, 33496, 33428, 33577, 33610, 33590, 33730, 33706, 33651, 33772, 33881, 33797, 33957, 33974, 33978, 34082, 34109, 34157, 34276, 34254, 34257, 34324, 34330, 34383, 34444, 34442, 34505, 34655, 34593, 34608, 34785, 34755, 34783, 34867, 34873, 34917, 35004, 35058, 34988, 35079, 35189, 35203, 35294, 35283, 35329, 35397, 35397, 35456, 35603, 35618, 35498, 35738, 35733, 35689, 35880, 35896, 35887, 35962, 36027, 36017, 36106, 36075, 36072, 36209, 36212, 36168, 36483, 36405, 36413, 36574, 36576, 36550, 36731, 36721, 36714, 36808, 36777, 36757]
+        
+        
         """we set the required EPR pairs to achieve each fidelity threshold"""
         self.purification.set_required_EPR_pairs_for_distilation(wk_idx,self)
         
@@ -588,12 +608,38 @@ class Network:
                             0,self.q_value,
                             self.each_link_cost_metric,self.number_of_flows,config.number_of_training_wks,
                                 egr,epoch_number,
-                                config.cut_off_for_path_searching,k,u,p,self.set_of_paths[p]])
+                                config.cut_off_for_path_searching,k,u,p,self.set_of_paths[p],
+                                
+                                self.alpha_value,
+               
+                                        config.rl_batch_size,config.initial_learning_rate,
+                                       config.learning_rate_decay_rate,
+                                       config.moving_average_decay,
+                                        config.learning_rate_decay_step_multiplier,
+                                        config.learning_rate_decay_step,
+                                       config.entropy_weight,config.optimizer,config.scale,
+                                        config.max_step,config.number_of_training_wks,
+                                        self.purification.two_qubit_gate_fidelity,
+                                        self.purification.measurement_fidelity,
+                                       len(config.set_of_edge_level_Fth),config.num_of_organizations])
         
         
     def save_results(self,wk_idx,config,genetic_alg_flag,rl_flag,shortest_path_flag,genetic_alg,
                      runs_of_algorithm,egr,optimal_egr,run_number,time_in_seconds):
-        
+        if config.optimization_problem_with_minimum_rate:
+            minimum_rate_constraint = "True"
+        else:
+            minimum_rate_constraint = "False"
+            
+        if config.dynamic_policy_flag:
+            dynamic_static = "True"
+        else:
+            dynamic_static = "False"
+            
+        if self.optimization_problem_with_maximum_rate:
+            max_flow_rate_flag = "True"
+        else:
+            max_flow_rate_flag="False"
         purification_schemes_string = ""
         for pur_scheme in self.purification.allowed_purification_schemes:
             if purification_schemes_string:
@@ -618,7 +664,10 @@ class Network:
                                         config.genetic_algorithm_initial_population,
                                         self.purification.two_qubit_gate_fidelity,
                                         self.purification.measurement_fidelity,time_in_seconds,
-                                        self.candidate_paths_size_for_genetic_alg,len(config.set_of_edge_level_Fth)])
+                                        self.candidate_paths_size_for_genetic_alg,
+                                        len(config.set_of_edge_level_Fth),config.num_of_organizations,
+                                       minimum_rate_constraint,dynamic_static,
+                                       max_flow_rate_flag,self.max_flow_rate])
         elif shortest_path_flag:
             Edge_Fth = self.purification.set_of_edge_level_Fth[0]
             scheme = self.each_link_cost_metric+"-Edge_Fth="+str(Edge_Fth)
@@ -633,7 +682,10 @@ class Network:
                                         0,0,
                                         config.cut_off_for_path_searching,0,
                                         0,0,self.purification.two_qubit_gate_fidelity,
-                                        self.purification.measurement_fidelity,time_in_seconds])
+                                        self.purification.measurement_fidelity,
+                                        time_in_seconds,config.num_of_organizations,
+                                       minimum_rate_constraint,
+                                       max_flow_rate_flag,self.max_flow_rate])
         elif rl_flag:
             with open(self.toplogy_wk_scheme_result, 'a') as newFile:                                
                 newFileWriter = csv.writer(newFile)
@@ -655,9 +707,35 @@ class Network:
                                         config.max_step,config.number_of_training_wks,
                                         self.purification.two_qubit_gate_fidelity,
                                         self.purification.measurement_fidelity,time_in_seconds,
-                                       len(config.set_of_edge_level_Fth)])
+                                       len(config.set_of_edge_level_Fth),
+                                       config.num_of_organizations,
+                                       minimum_rate_constraint,
+                                       max_flow_rate_flag,self.max_flow_rate])
         
-#                                     
+#                      
+
+    def get_flows_minimum_rate(self,wk_idx):
+        self.each_flow_minimum_rate = {}
+        with open(self.each_flow_minimum_rate_value_file, "r") as f:
+            reader = csv.reader( (line.replace('\0','') for line in f) )
+            for line in reader:  #flow,flow_pair,rate    
+                wk_idx = int(line[0])
+                k = int(line[1])
+                flow_id= int(line[2])
+                flow_pair = line[3]
+                flow_pair = flow_pair.replace("(","")
+                flow_pair = flow_pair.replace(")","")
+                flow_pair = flow_pair.split(",")
+                flow_pair_src = flow_pair[0]
+                flow_pair_dst = flow_pair[1]
+                flow_pair_src = int(flow_pair_src)
+                flow_pair_dst = int(flow_pair_dst)
+                flow = (flow_pair_src,flow_pair_dst)
+                minimum_rate = max(0,float(line[4])-4)
+#                 print("for wk %s k %s flow %s from file %s  id %s min R %s "%(wk_idx,k,flow, flow_id,flow_pair,minimum_rate))
+                self.each_flow_minimum_rate[wk_idx,k,flow] = minimum_rate
+#                 time.sleep(1)
+            
                 
     def evaluate_genetic_algorithm_for_path_selection(self,config):
         """this function implements the main work flow of the genetic algorithm"""
@@ -666,9 +744,37 @@ class Network:
         self.set_link_weight("Hop")
         runs_of_genetic_algorithm = 0
         genetic_alg = Genetic_algorithm(config)
+        genetic_alg.multi_point_crossover_value = min(config.multi_point_crossover_value,
+                                                      config.num_of_organizations*self.num_of_paths*self.number_of_flows)
+        genetic_alg.multi_point_mutation_value = min(config.multi_point_mutation_value,
+                                                     config.num_of_organizations*self.num_of_paths*self.number_of_flows)
+        genetic_alg.static_multi_point_crossover_value = min(config.static_multi_point_crossover_value,
+                                                             config.num_of_organizations*self.num_of_paths*self.number_of_flows)
+        genetic_alg.static_multi_point_mutation_value = min(config.static_multi_point_mutation_value,
+                                                            config.num_of_organizations*self.num_of_paths*self.number_of_flows)
         max_runs_of_genetic_algorithm = 1 # maximum number of populations during genetic algorithm search
-        for wk_idx in self.work_loads:# Each work load includes a different set of user pairs in the network
+#         for wk_idx in self.work_loads:# Each work load includes a different set of user pairs in the network
+        
+        machine_name = "Unknown!"
+        machine_name = config.toplogy_wk_scheme_result_file
+        try:
+            machine_name = str(machine_name.split("results/")[1].split("with")[0])
+        except:
+            machine_name = "Unknown!"
+            
+        if config.optimization_problem_with_minimum_rate:
+            minimum_rate_constraint = "True"
+        else:
+            minimum_rate_constraint = "False"
+        
+        for wk_idx in range(config.wkidx_min_value,config.wkidx_max_value):
             if wk_idx in config.workloads_with_feasible_solution:
+                print("for wk indx ",wk_idx)
+                if config.get_flows_minimum_rate_flag:
+                    each_flow_minimum_rate = {}
+                    self.get_flows_minimum_rate(wk_idx)
+                
+                
                 for elit_pop_size in genetic_alg.elit_pop_sizes:# percentage of top chromosomes that we generate next population
                     genetic_alg.elit_pop_size = elit_pop_size
 
@@ -677,6 +783,7 @@ class Network:
                         for mutation_op_value in genetic_alg.mutation_op_values:# probability of applying mutation
                             genetic_alg.mutation_p =mutation_op_value 
                             for population_size in genetic_alg.population_sizes:
+                                print("for crossover %s mutation %s population %s "%(cross_over_value,mutation_op_value,population_size))
                                 genetic_alg.number_of_chromosomes = population_size
                                 """we set the set of all paths (all n shortest paths using different link cost metrics)"""
                                 self.get_each_user_all_paths(wk_idx,False)
@@ -684,7 +791,7 @@ class Network:
                                     # we print the path ids for each user pair id
                                     self.each_user_organization = {}
                                     
-                                    genetic_alg.generate_chromosomes(wk_idx,self)
+                                    genetic_alg.generate_chromosomes(wk_idx,i,self,config)
                                     max_fitness_value = 0
                                     best_chromosome = ""
                                     genetic_algorithm_running_flag = True
@@ -693,11 +800,14 @@ class Network:
                                         genetic_alg.each_fitness_chromosomes = {}
                                         chromosome_id = 0
                                         # input datetime
+                                        fitness_values = []
                                         time_in_seconds = time.time()
                                         for chromosome in genetic_alg.chromosomes:
                                             self.set_paths_from_chromosome(wk_idx,chromosome)
-                                            fitness_value  = solver.CPLEX_maximizing_EGR(wk_idx,self,runs_of_genetic_algorithm,chromosome_id)
+                                            fitness_value  = solver.CPLEX_maximizing_EGR(wk_idx,self,config,genetic_alg,-1,-1,chromosome_id,"Genetic")
                                             fitness_value = round(fitness_value,3)
+                                            if fitness_value not in fitness_values:
+                                                fitness_values.append(fitness_value)
                                             try:
                                                 genetic_alg.each_fitness_chromosomes[fitness_value].append(chromosome)
                                             except:
@@ -708,14 +818,31 @@ class Network:
                                             genetic_alg.update_operation_probabilities(runs_of_genetic_algorithm,config)
                                             chromosome_id+=1
 
-                                            if runs_of_genetic_algorithm%50==0:
+                                            if runs_of_genetic_algorithm%20==0:
 
-                                                print("for wk %s run %s topology %s flow size %s num paths %s chromosome %s th from %s we got egr %s step %s from %s"
-                                                  %(wk_idx,i,self.topology_name,self.number_of_flows,self.num_of_paths,chromosome_id,len(genetic_alg.chromosomes),fitness_value,
+                                                print("wk %s run %s |U_k| %s num_k %s # P %s dyn/stc %s |DS| %s |P_can| %s Min_R %s mach %s chro %s th from %s egr %s step %s / %s"
+                                                  %(wk_idx,i,self.number_of_flows,config.num_of_organizations,
+                                                    self.num_of_paths,config.dynamic_policy_flag,len(config.set_of_edge_level_Fth),config.candidate_paths_size_for_genetic_alg,
+                                                    minimum_rate_constraint,machine_name,chromosome_id,len(genetic_alg.chromosomes),fitness_value,
                                                     runs_of_genetic_algorithm,genetic_alg.max_runs_of_genetic_algorithm))
                                                 #print("******************************* one round of genetic algorithm remained %s*******************",genetic_alg.max_runs_of_genetic_algorithm-runs_of_genetic_algorithm)
+                                        max_fitness = max(fitness_values)
+                                        best_chromosome = genetic_alg.each_fitness_chromosomes[max_fitness][0]
+                                        
+                                        self.set_paths_from_chromosome(wk_idx,best_chromosome)
+                                        fitness_value  = solver.CPLEX_maximizing_EGR(wk_idx,self,config,genetic_alg,runs_of_genetic_algorithm,i,0,"Genetic")
+#                                         print("*** our best chromosome at step %s was %s with fitness %s ****"%(runs_of_genetic_algorithm,best_chromosome,fitness_value))
+#                                         print("best chromosome %s "%(best_chromosome))
+#                                         time.sleep(1)
+#                                         print("best chromosome ",best_chromosome)
+#                                         time.sleep(10)
                                         genetic_alg.population_gen_op()
-                                        print("runs_of_genetic_algorithm %s from %s "%(runs_of_genetic_algorithm,genetic_alg.max_runs_of_genetic_algorithm))
+                                        print("wk %s run %s |U_k| %s num_k %s # P %s dyn/stc %s |DS| %s |P_can| %s mach %s Pop %s step %s / %s"
+                                                  %(wk_idx,i,self.number_of_flows,config.num_of_organizations,
+                                                    self.num_of_paths,config.dynamic_policy_flag,len(config.set_of_edge_level_Fth),
+                                                    config.candidate_paths_size_for_genetic_alg,
+                                                    machine_name,len(genetic_alg.chromosomes),
+                                                    runs_of_genetic_algorithm,genetic_alg.max_runs_of_genetic_algorithm))
                                         runs_of_genetic_algorithm+=1
     
     
@@ -821,6 +948,7 @@ class Network:
                 for user_pair in self.each_wk_each_k_user_pairs[wk_idx][k]:
                 #for user_pair in self.all_user_pairs_across_wks:
                     having_atleast_one_path_flag = False
+                    set_of_all_paths = []
                     for link_cost_metric in ["Hop","EGR","EGRSquare"]:
         #             for link_cost_metric in ["Hop"]:#just for now to fix the isuue with iniializing the genetic algorthm
                         self.each_link_cost_metric =link_cost_metric 
@@ -828,7 +956,7 @@ class Network:
         #                 k = self.each_user_organization[user_pair]
                         user_pair_id = self.each_wk_k_pair_id[wk_idx][k][user_pair]
                         paths = self.get_paths_between_user_pairs(user_pair)
-                        random.shuffle(paths)
+                        #random.shuffle(paths)
                         selected_path_for_this_scheme = []
                         path_flag = False
                         for path in paths:
@@ -838,48 +966,58 @@ class Network:
                                 path_edges.append((path[node_indx],path[node_indx+1]))
                                 node_indx+=1
 
-                            #if path_edges not in set_of_all_paths:
-                            path_fidelity  = self.purification.get_fidelity(path_edges,self.set_of_virtual_links)
-                            #if path_fidelity>0.50:
-        #                     wk_idx=self.each_user_pair_id_work_load[user_pair_id]
-        #                     k = self.each_user_pair_id_organization[user_pair_id]
+                            if path_edges not in set_of_all_paths:
+                                set_of_all_paths.append(path_edges)
+                                path_fidelity  = self.purification.get_fidelity(path_edges,self.set_of_virtual_links)
+                                #if path_fidelity>0.50:
+            #                     wk_idx=self.each_user_pair_id_work_load[user_pair_id]
+            #                     k = self.each_user_pair_id_organization[user_pair_id]
 
-                            path_flag= True
-                            having_atleast_one_path_flag = True
-                            set_of_all_paths.append(path_edges)
-                            set_of_different_version_of_a_path = []
-                            for edge_level_Fth in self.purification.set_of_edge_level_Fth:
+                                path_flag= True
+                                having_atleast_one_path_flag = True
+                                set_of_all_paths.append(path_edges)
+                                set_of_different_version_of_a_path = []
                                 
-                                self.purification.each_path_edge_level_Fth[self.path_counter_id]=edge_level_Fth
+                                for edge_level_Fth in self.purification.set_of_edge_level_Fth:
+                                    if edge_level_Fth==0.992:
+                                        try:
+                                            self.each_wk_k_user_pair_id_unique_path_ids[wk_idx,k,user_pair_id,link_cost_metric].append(self.path_counter_id)
+                                        except:
+                                            self.each_wk_k_user_pair_id_unique_path_ids[wk_idx,k,user_pair_id,link_cost_metric] = [self.path_counter_id]
+                                        
+                                    self.purification.each_path_edge_level_Fth[self.path_counter_id]=edge_level_Fth
 
-                                self.set_each_path_length(self.path_counter_id,path_edges)
-                                self.set_of_paths[self.path_counter_id] = path_edges
-                                # we set what is the fidelity threshold of the flow that uses this path
-                                self.purification.each_path_basic_fidelity[self.path_counter_id]= round(path_fidelity,3)
-                                #print("these are the user pair ids in wk %s k %s user_pair %s user_pair_id %s: %s"%(wk_idx,k,user_pair,user_pair_id,self.purification.each_wk_k_u_fidelity_threshold[wk_idx][k]))
-#                                 print("we set Fth %s for wk %s k %s path %s from flow %s "%(self.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][user_pair_id],wk_idx,k,self.path_counter_id,user_pair_id))
-                                self.purification.each_path_flow_target_fidelity[self.path_counter_id] = self.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][user_pair_id]
-                                if self.path_counter_id not in selected_path_for_this_scheme:
-                                    selected_path_for_this_scheme.append(self.path_counter_id)
-                                    
-#                                 print("we set path wk %s k %s flow %s with id %s path id %s "%(wk_idx,k,user_pair,user_pair_id,self.path_counter_id))
-                                try:
-                                    self.each_pair_id_paths[user_pair_id].append(self.path_counter_id)
-                                except:
-                                    self.each_pair_id_paths[user_pair_id] = [self.path_counter_id]
-                                """here we set what is the purification scheme for each path id.
-                                for each path, there could multiple versions
-                                depends on the number of purification schemes
-                                e.g, end-level,edge-level, multi-hop level"""
-                                #self.purification.each_path_id_purificaiton_scheme[self.path_counter_id] = pur_scheme
-                                set_of_different_version_of_a_path.append(self.path_counter_id)
-                                self.path_counter_id+=1  
+                                    self.set_each_path_length(self.path_counter_id,path_edges)
+                                    self.set_of_paths[self.path_counter_id] = path_edges
+                                    # we set what is the fidelity threshold of the flow that uses this path
+                                    self.purification.each_path_basic_fidelity[self.path_counter_id]= round(path_fidelity,3)
+                                    #print("these are the user pair ids in wk %s k %s user_pair %s user_pair_id %s: %s"%(wk_idx,k,user_pair,user_pair_id,self.purification.each_wk_k_u_fidelity_threshold[wk_idx][k]))
+    #                                 print("we set Fth %s for wk %s k %s path %s from flow %s "%(self.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][user_pair_id],wk_idx,k,self.path_counter_id,user_pair_id))
+                                    self.purification.each_path_flow_target_fidelity[self.path_counter_id] = self.purification.each_wk_k_u_fidelity_threshold[wk_idx][k][user_pair_id]
+                                    if self.path_counter_id not in selected_path_for_this_scheme:
+                                        selected_path_for_this_scheme.append(self.path_counter_id)
 
-                            #we put different versions of a path in order to prevent using a path with differernt purification schemes at the same time
-                            for path_id in set_of_different_version_of_a_path:
-                                self.purification.each_path_version_numbers[path_id] = set_of_different_version_of_a_path
+    #                                 print("we set path wk %s k %s flow %s with id %s path id %s "%(wk_idx,k,user_pair,user_pair_id,self.path_counter_id))
+                                    try:
+                                        self.each_pair_id_paths[user_pair_id].append(self.path_counter_id)
+                                    except:
+                                        self.each_pair_id_paths[user_pair_id] = [self.path_counter_id]
+                                    """here we set what is the purification scheme for each path id.
+                                    for each path, there could multiple versions
+                                    depends on the number of purification schemes
+                                    e.g, end-level,edge-level, multi-hop level"""
+                                    #self.purification.each_path_id_purificaiton_scheme[self.path_counter_id] = pur_scheme
+                                    set_of_different_version_of_a_path.append(self.path_counter_id)
+                                    self.path_counter_id+=1  
+                                
+                                #we put different versions of a path in order to prevent using a path with differernt purification schemes at the same time
+                                for path_id in set_of_different_version_of_a_path:
+                                    self.purification.each_path_version_numbers[path_id] = set_of_different_version_of_a_path
 
-
+#                         print("for scheme %s wk %s k %s u %s  pair %s we have min path ids %s max path ids %s "%(
+#                                 link_cost_metric,wk_idx,k,user_pair_id,user_pair,
+#                                     min(set_of_different_version_of_a_path),
+#                                     max(set_of_different_version_of_a_path)))
                         #if link_cost_metric=="Hop":
                             #print("scheme %s flow %s have these path ids %s "%(link_cost_metric,user_pair_id,selected_path_for_this_scheme))
                             #time.sleep(1)
@@ -990,14 +1128,14 @@ class Network:
         
         num_nodes = len(self.nodes)
         try:
-            work_load_file = self.topology_file.split(".txt")[0]
+            work_load_file = self.topology_file.split(".txt")[0]+self.work_load_file_extension
         except:
             if ".txt" not in self.topology_file:
-                work_load_file = self.topology_file
+                work_load_file = self.topology_file+self.work_load_file_extension
 #         if self.running_path_selection_scheme in ["EGR","EGRSquare","Hop","Genetic"]:
 #             f = open(work_load_file+"WK2", 'r')
 #         else:
-        f = open(work_load_file+"WK", 'r')
+        f = open(work_load_file, 'r')
         self.work_load_counter = 0
         all_active_user_pairs_acros_wks = []
         header = f.readline()
@@ -1014,6 +1152,10 @@ class Network:
                 flow_fidelity_threshold = float(values[6])
                 user_pair = (i,j)
                 flow_number_set = int(values[7])
+                try:
+                    flow_max_rate_constraint = int(values[8])
+                except:
+                    flow_max_rate_constraint = 10000000
                 if flow_number_set ==self.number_of_flows:
                     if wk_idx not in self.work_loads:
                         self.work_loads.append(wk_idx)
@@ -1039,6 +1181,11 @@ class Network:
                             except:
                                 self.each_wk_each_k_user_pairs[wk_idx]={}
                                 self.each_wk_each_k_user_pairs[wk_idx][k]=[user_pair]
+                        """we set the maximum rate constraint for this flow """
+                        try:
+                            self.each_wk_k_u_max_rate_constraint[wk_idx,k,user_pair_id] = flow_max_rate_constraint
+                        except:
+                            self.each_wk_k_u_max_rate_constraint[wk_idx,k,user_pair_id] = flow_max_rate_constraint
                         """we create an id for this flow and added to the data structure
                         This is becasue we want to let two organizations have same flows but with different ids"""
                         try:

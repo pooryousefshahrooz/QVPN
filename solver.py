@@ -12,6 +12,7 @@ from docplex.mp.progress import SolutionRecorder
 import docplex.mp.model as cpx
 import networkx as nx
 import time
+import random
 from config import get_config
 from absl import flags
 FLAGS = flags.FLAGS
@@ -24,14 +25,44 @@ class Solver:
     def __init__(self):
         pass
     
-    def CPLEX_maximizing_EGR(self,wk_idx,network,run_step_number,chromosome_id):
+    def CPLEX_maximizing_EGR(self,wk_idx,network,config,genetic_alg,generation_number,run_id,chromosome_id,scheme):
         
         zero_path_flag = False
+#         print("**************** start **************** ")
         for k in network.each_wk_organizations[wk_idx]:
             for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
-#                 print("for wk %s k %s u %s we have %s paths "%(wk_idx,k,u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
+                user_pair = network.each_wk_k_id_pair[wk_idx][k][u]
+#                 print("wk %s k %s flow %s using %s paths "%(wk_idx,k,u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
+                for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                     print("using path %s "%(p))
+                    path_basic_fidelity = network.purification.each_path_basic_fidelity[p]
+                    F_th = network.purification.each_path_flow_target_fidelity[p]
+                    path_dis_strategy_edge_Fth = network.purification.each_path_edge_level_Fth[p]
+                    path_edges = network.set_of_paths[p]
+                    
+                    
+                    edge_fidelity = network.purification.each_edge_fidelity[path_edges[0]]
+                    p_lenght = network.purification.get_path_actual_length(path_edges,network.set_of_virtual_links)
+                
+                    new_target = round((3*(4/3*F_th-1/3)**(1/p_lenght)+1)/4,3)
+                    edge_g_value = network.purification.each_path_edge_level_g[p]
+                    end_g_value = network.purification.each_path_end_level_g[p]
+                   
+                        
+                    path_fidelity_after_edge_level_dis = network.purification.compute_e2e_fidelity(path_dis_strategy_edge_Fth,path_edges,network.set_of_virtual_links)
+#                     time.sleep(1)
+#                     print("for wk %s k %s u %s p %s with e2e F %s need edge g %s to reach from %s to Edge_F %s and e2e g %s to reach from %s to  flow Fth %s whole %s "%(wk_idx,
+#                                                                                                    k,u,p,path_basic_fidelity,
+#                                                                                                     edge_g_value,edge_fidelity,
+#                                                                                                     path_dis_strategy_edge_Fth,
+#                                                                                                     end_g_value,path_fidelity_after_edge_level_dis,
+#                                                                                                     F_th,
+#                                                                                                   (edge_g_value*end_g_value)))
+#                 print("for wk %s k %s u pair %s %s we have %s paths "%(wk_idx,k,u,user_pair,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])))
                 if len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])==0:# there is no path to deliver any
                     zero_path_flag = True
+#         print("**************** end **************** ")
+#         time.sleep(10)
         if zero_path_flag and network.optimization_problem_with_minimum_rate:
 #             print("zero path constraint")
             return 0
@@ -65,13 +96,36 @@ class Solver:
             for k in network.each_wk_organizations[wk_idx]:
                 for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
                     flow_weight = network.each_wk_k_u_weight[wk_idx][k][u]
+#                     print("we are setting constraint min flow for k %s flow %s "%(k,u))
+
                     #for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
     #                 print("for org %s u %s we have %s paths user pair %s "%(k,u,len(network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]),network.each_id_pair[u]))
+                    flow_pair = network.each_wk_k_id_pair[wk_idx][k][u]
+                    each_flow_min_rate = network.min_flow_rate
+                    if config.get_flows_minimum_rate_flag:
+                        each_flow_min_rate = network.each_flow_minimum_rate[wk_idx,k,flow_pair]
+#                     print("for flow %s pair %s in wk %s k %s we set minimum rate %s "%(u,flow_pair,wk_idx,k,each_flow_min_rate))
+                    each_flow_min_rate = 10
                     opt_model.add_constraint(
                     opt_model.sum(x_vars[k,p] for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
-                        >= network.min_flow_rate
+                        >= each_flow_min_rate
                      , ctname="min_flow_rate_{0}_{1}".format(k,u))
-
+        if network.optimization_problem_with_maximum_rate:
+            for k in network.each_wk_organizations[wk_idx]:
+                for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]:
+#                     this_flow_max_rate = network.max_flow_rate
+                    
+                    this_flow_max_rate = network.each_wk_k_u_max_rate_constraint[wk_idx,k,u]
+#                     this_flow_max_rate = 1000
+#                     print("we are setting constraint max flow for k %s flow %s "%(k,u))
+                    if config.updating_max_rate_flag and this_flow_max_rate<config.up_max_rate_value:
+                        this_flow_max_rate = random.randint(this_flow_max_rate,config.up_max_rate_value)
+                    opt_model.add_constraint(
+                    opt_model.sum(x_vars[k,p] 
+                                  for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u])
+                        <= this_flow_max_rate
+                     , ctname="max_flow_rate_{0}_{1}".format(k,u))
+            
         objective = opt_model.sum(x_vars[k,p]*network.each_wk_k_weight[wk_idx][k] *network.each_wk_k_u_weight[wk_idx][k][u]*network.q_value**(network.get_path_length(p)-1)
                               for k in network.each_wk_organizations[wk_idx]
                               for u in network.each_wk_each_k_user_pair_ids[wk_idx][k] 
@@ -99,29 +153,116 @@ class Solver:
 
 #         opt_model.clear()
 #         time.sleep(20)
-        
+
         if objective_value>0:
-            if run_step_number  in [0,200,500,900,1000,1500,2000] and network.get_flow_rates_info:
+            if generation_number  in [0,1,2,20,100,200,500,700,800,900,1000,1500,1999,2000] and network.get_flow_rates_info:
                 for k in network.each_wk_organizations[wk_idx]:
                     for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
-                        w=network.each_wk_k_u_weight[wk_idx][k][u] 
+                        if network.optimization_problem_with_maximum_rate:
+                            max_flow_rate_flag = "True"
+                        else:
+                            max_flow_rate_flag="False"
+                        flow_weight=network.each_wk_k_u_weight[wk_idx][k][u] 
+                        user_pair = network.each_wk_k_id_pair[wk_idx][k][u]
+                        user_pair_str = str(user_pair[0])+":"+str(user_pair[1])
+                        k_weight = network.each_wk_k_weight[wk_idx][k]
                         for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
                             F_th = network.purification.each_path_flow_target_fidelity[p]
+                            path_dis_strategy_edge_Fth = network.purification.each_path_edge_level_Fth[p]
                             path_edges = network.set_of_paths[p]
-                            p_lenght = len(path_edges)
+                            path_edges_str = ""
+                            for edge in path_edges:
+                                if path_edges_str:
+                                    path_edges_str = path_edges_str+":"+str(edge[0])+"|"+str(edge[1])
+                                else:
+                                    path_edges_str = str(edge[0])+"|"+str(edge[1])
+                            p_lenght = network.purification.get_path_actual_length(path_edges,network.set_of_virtual_links)
                             new_target = round((3*(4/3*F_th-1/3)**(1/p_lenght)+1)/4,3)
                             edge_g_value = network.purification.each_path_edge_level_g[p]
                             end_g_value = network.purification.each_path_end_level_g[p]
-                            with open(network.path_variables_file_path, 'a') as newFile:                                
-                                newFileWriter = csv.writer(newFile)
-                                newFileWriter.writerow([network.running_path_selection_scheme,
-                                                            run_step_number,chromosome_id,k,u,p,
-                                                            network.purification.two_qubit_gate_fidelity,
-                                                            network.purification.measurement_fidelity,
-                                                            network.alpha_value,x_vars[k,p].solution_value,
-                                                            wk_idx,objective_value,F_th,new_target,
-                                                            edge_g_value,end_g_value])
-    
+#                             print("********** for k %s for flow %s we have %s "%(k,u,x_vars[k,p].solution_value))
+                            if genetic_alg:
+                                with open(network.path_variables_file_path, 'a') as newFile:                                
+                                    newFileWriter = csv.writer(newFile)
+                                    newFileWriter.writerow([
+                                        network.topology_name,wk_idx,
+                                        config.num_of_organizations,generation_number,
+                                        k,k_weight,user_pair,u,flow_weight,
+                                        p_lenght,
+                                        x_vars[k,p].solution_value,
+                                        F_th,path_dis_strategy_edge_Fth,
+                                        edge_g_value,end_g_value,objective_value,
+                                        network.alpha_value,network.num_of_paths,
+                                        network.q_value,
+                                        network.number_of_flows,genetic_alg.elit_pop_size,
+                                        genetic_alg.crossover_p,genetic_alg.mutation_p,
+                                        genetic_alg.number_of_chromosomes,
+                                        config.genetic_algorithm_random_initial_population,
+                                        config.ga_elit_pop_update_step,config.ga_crossover_mutation_update_step,
+                                        config.cut_off_for_path_searching,config.multi_point_mutation_value,
+                                        config.multi_point_crossover_value,
+                                        config.ga_crossover_mutation_multi_point_update_step,
+                                        config.genetic_algorithm_initial_population_rl_epoch_number,
+                                        config.number_of_training_wks,
+                                        config.genetic_algorithm_initial_population,
+                                        network.purification.two_qubit_gate_fidelity,
+                                        network.purification.measurement_fidelity,
+                                        network.candidate_paths_size_for_genetic_alg,
+                                        len(config.set_of_edge_level_Fth),scheme,
+                                        max_flow_rate_flag,network.max_flow_rate,
+                                        run_id,p,network.min_flow_rate,
+                                        path_edges_str,config.up_max_rate_value
+                                                           ])
+                            else:
+                                with open(network.path_variables_file_path, 'a') as newFile:                                
+                                    newFileWriter = csv.writer(newFile)
+                                    newFileWriter.writerow([
+                                    network.topology_name,wk_idx,config.num_of_organizations,generation_number,
+                                    k,k_weight,user_pair,u,flow_weight,
+                                    p_lenght,
+                                    x_vars[k,p].solution_value,
+                                    F_th,path_dis_strategy_edge_Fth,
+                                    edge_g_value,end_g_value,objective_value,
+                                    network.alpha_value,network.num_of_paths,
+                                    network.q_value,
+                                    network.number_of_flows,0,
+                                    0,0,
+                                    0,
+                                    config.genetic_algorithm_random_initial_population,
+                                    config.ga_elit_pop_update_step,config.ga_crossover_mutation_update_step,
+                                    config.cut_off_for_path_searching,config.multi_point_mutation_value,
+                                    config.multi_point_crossover_value,
+                                    config.ga_crossover_mutation_multi_point_update_step,
+                                    config.genetic_algorithm_initial_population_rl_epoch_number,
+                                    config.number_of_training_wks,
+                                    config.genetic_algorithm_initial_population,
+                                    network.purification.two_qubit_gate_fidelity,
+                                    network.purification.measurement_fidelity,
+                                    network.candidate_paths_size_for_genetic_alg,
+                                    len(config.set_of_edge_level_Fth),scheme,max_flow_rate_flag,
+                                        network.max_flow_rate,run_id,p,
+                                        network.min_flow_rate,path_edges_str,
+                                        config.up_max_rate_value
+                                                       ])
+#             else:
+#                 print("we do not save becase the run number is ",run_step_number)
+#                 time.sleep(2)
+#         for k in network.each_wk_organizations[wk_idx]:
+#             for u in network.each_wk_each_k_user_pair_ids[wk_idx][k]: 
+#                 w=network.each_wk_k_u_weight[wk_idx][k][u] 
+#                 for p in network.each_wk_each_k_each_user_pair_id_paths[wk_idx][k][u]:
+#                     F_th = network.purification.each_path_flow_target_fidelity[p]
+#                     path_fidelity = network.purification.each_path_basic_fidelity[p]
+#                     path_edges = network.set_of_paths[p]
+#                     p_lenght = len(path_edges)
+#                     new_target = round((3*(4/3*F_th-1/3)**(1/p_lenght)+1)/4,3)
+#                     edge_g_value = network.purification.each_path_edge_level_g[p]
+#                     end_g_value = network.purification.each_path_end_level_g[p]
+#                     g_value = end_g_value+edge_g_value
+#                     print("for k %s u %s path %s we have g(.) %s to go from %s to %s rate %s agg_rate %s "%(k,u,p,g_value,path_fidelity,F_th,x_vars[k,p].solution_value,objective_value))     
+#                     time.sleep(1)
+                                
+                                
         return objective_value
     
     

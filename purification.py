@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 import time
@@ -187,7 +187,8 @@ class Purification:
                 covered_path_counter+=1
                 # we get the flow-specific fidelity threshold
                 F_threshold = self.each_path_flow_target_fidelity[path_id]
-                p_lenght = len(path_edges)
+#                 p_lenght = len(path_edges)
+                p_lenght = self.get_path_actual_length(path_edges,network.set_of_virtual_links)
                 F_threshold_when_only_edge_level = round((3*(4/3*F_threshold-1/3)**(1/p_lenght)+1)/4,3)
                 #since all edges have the same fideity, the first edge fidelity gives us the whole edges fidelity
                 edge_fidelity = self.each_edge_fidelity[path_edges[0]]
@@ -222,11 +223,13 @@ class Purification:
                         end_level_g =self.get_avg_epr_pairs_DEJMPS(path_fidelity_after_edge_level_dis ,F_threshold)
                 self.each_path_edge_level_g[path_id] = edge_level_g
                 self.each_path_end_level_g[path_id] = end_level_g
+#                 path_g_function_value = edge_level_g+end_level_g# this is wrong!
+                path_g_function_value = edge_level_g*end_level_g
                 try:
-                    self.oracle_for_target_fidelity[path_id][F_threshold] = edge_level_g+end_level_g
+                    self.oracle_for_target_fidelity[path_id][F_threshold] = path_g_function_value
                 except:
                     self.oracle_for_target_fidelity[path_id] = {}
-                    self.oracle_for_target_fidelity[path_id][F_threshold] = edge_level_g+end_level_g
+                    self.oracle_for_target_fidelity[path_id][F_threshold] = path_g_function_value
 #                 print("for path id %s we have Fth %s and g is %s "%(path_id,F_threshold,(edge_level_g+end_level_g)))
 #                 if self.each_path_id_purificaiton_scheme[path_id]=="end_level":
 #                     self.set_required_EPR_pairs_for_each_path_each_fidelity_threshold(wk_idx,path_id)
@@ -292,7 +295,10 @@ class Purification:
 #         print("we get g value for wk %s org %s flow %s path %s edge %s threshold %s "%(wk_idx,k,flow,p,edge,threshold))
 #         print("self.oracle_for_target_fidelity",self.oracle_for_target_fidelity)
 #         print("self.oracle_for_target_fidelity[p]",self.oracle_for_target_fidelity[p])
-        return self.oracle_for_target_fidelity[p][threshold]
+        try:
+            return self.oracle_for_target_fidelity[p][threshold]
+        except:
+            print("self.oracle_for_target_fidelity[p] ",self.oracle_for_target_fidelity[p])
 #         if self.each_path_id_purificaiton_scheme[p]=="end_level":
 #             return self.oracle_for_target_fidelity[p][threshold]
 #         elif self.each_path_id_purificaiton_scheme[p]=="edge_level":
@@ -307,6 +313,14 @@ class Purification:
         return self.each_wk_k_u_fidelity_threshold[wk_idx][k][u]
     
     
+    def get_path_actual_length(self,path_edges,virtual_links):
+        path_length = 0
+        for edge in path_edges:
+            if edge not in virtual_links and (edge[1],edge[0]) not in virtual_links:
+                path_length+=1
+        if path_length==0:
+            path_length=1
+        return path_length
     def compute_e2e_fidelity(self,edge_F,path_edges,virtual_links):
         if path_edges:
             F_product = (4*edge_F-1)/3 
@@ -375,23 +389,34 @@ class Purification:
             return n_avg    
 
 
-# In[9]:
+# In[2]:
 
 
-# path_edges = [0,1,2,3,4,5,6,7,8,9,10]
-# each_edge_fidelity = {0:0.99,1:0.99,2:0.99,3:0.99,4:0.99,5:0.99,6:0.99,7:0.99,
-#                       8:0.99,9:0.99,10:0.99,11:.99,12:.99,13:.99,14:.99,15:.99}
-# each_edge_fidelity = {0:1,1:1,2:1,3:1,4:1,5:1,6:1,7:1,
-#                       8:1,9:1,10:1,11:1,12:1,13:1,14:1,15:1}
-# F_product = (4*each_edge_fidelity[path_edges[0]]-1)/3 
-# for edge in path_edges[1:]:
-#     F_product  = F_product*(4*each_edge_fidelity[edge]-1)/3
+# def get_next_fidelity_and_succ_prob_DEJMPS(F1,F2,F3,F4):
+#     succ_prob = (F1+F2)**2 + (F3+F4)**2
+#     output_fidelity1 = (F1**2 + F2**2)/succ_prob
+#     output_fidelity2 = (2*F3*F4)/succ_prob
+#     output_fidelity3 = (F3**2 + F4**2)/succ_prob
+#     output_fidelity4 = (2*F1*F2)/succ_prob
 
-# N = len(path_edges)+1
-# p1 = 0.99
-# p2 = 0.99
-# F_final = 1/4*(1+3*(p1*p2)**(N-1)*(F_product))
-# print(round(F_final,3))
+#     return output_fidelity1, output_fidelity2, output_fidelity3, output_fidelity4, succ_prob
+
+
+# def get_avg_epr_pairs_DEJMPS(F_init,F_target):
+#     F_curr = F_init
+#     F2 = F3 = F4 = (1-F_curr)/3
+#     n_avg = 1.0
+#     while(F_curr < F_target):
+#         F_curr,F2, F3, F4, succ_prob = get_next_fidelity_and_succ_prob_DEJMPS(F_curr, F2, F3, F4)
+#         n_avg = n_avg*(2/succ_prob)
+
+#     return  n_avg
+
+
+# In[7]:
+
+
+# get_avg_epr_pairs_DEJMPS(0.65,0.85)
 
 
 # In[ ]:

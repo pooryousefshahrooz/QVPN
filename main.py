@@ -37,14 +37,19 @@ def main(_):
             for gate_fidelity_value in config.two_qubit_gate_fidelity_set:
                 network.purification.two_qubit_gate_fidelity = gate_fidelity_value
                 for measurement_fidelity in config.measurement_fidelity_set:
+                    print("for p2 %s eta %s "%(gate_fidelity_value,measurement_fidelity))
                     network.purification.measurement_fidelity = measurement_fidelity
                     network.set_nodes_q_value()
                     for number_of_flows in network.number_of_flow_set:
+                        print("for flow size ",number_of_flows)
                         network.number_of_flows = number_of_flows
 #                           for alpha_value in [0.0001,0.001,0.05,0.04,0.03,0.02,0.01,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5]:
                         for alpha_value in config.alpha_values:
+                            print("for alpha value ",alpha_value)
                             network.alpha_value = alpha_value
-                            for min_rate in [2]:
+                            for min_rate in config.min_flow_rates:
+#                             for max_rate in config.max_flow_rates:
+                            #for max_rate in (10000,100,200):
                                 network.min_flow_rate = min_rate
                                 #for target_long_link in [40]:
                                     #for repeater_placement_distance in [10]:
@@ -78,10 +83,20 @@ def main(_):
                                         print("not valid scheme (%s): set schemes from EGR, EGRSquare,Hop, Genetic, or RL keywords"%(scheme))
 
 
-# In[ ]:
+# In[3]:
 
 
-
+edges = "31:30, 30:107, 107:13,13:14"
+saved_edges = edges.split(",")
+saved_path_edges =[]
+for edge in saved_edges:
+    edge = edge.split(":")
+    saved_path_edges.append((int(edge[0]),int(edge[1])))
+set_of_paths = {0:[(1,2),(2,3),(3,4)],1:[(31,30),(30,107),(107,13),(13,14)]}
+for path_id,edges in set_of_paths.items():
+    if saved_path_edges==edges:
+        print("path ",path_id)
+print("path ")
 
 
 # In[ ]:
